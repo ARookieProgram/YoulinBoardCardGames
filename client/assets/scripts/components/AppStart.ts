@@ -9,6 +9,28 @@ interface AppStartSelf {
     getServerInfo(): void;
 }
 
+/**
+ * 隐藏左下角的帧率 / draw call 等引擎统计信息（**所有场景**）。
+ *
+ * Creator 的预览模板（`preview-templates/boot.js`）默认把 `showFPS` 传成 true，所以每个场景
+ * 左下角都会显示这些信息；本工程没有任何地方需要它。`cc.debug.setDisplayStats(false)` 会同时把
+ * `cc.game.config.showFPS` 置成 false，引擎随后在 `_runMainLoop` 里再读配置时也不会把它打开。
+ *
+ * 之所以在模块顶层就调一次：Creator 会把 `assets/` 下的脚本整包加载
+ * （`temp/quick-scripts` 下的 `__qc_bundle__.js`），所以**预览任意一个场景**都会执行到这里，
+ * 而不只是从 `start` 场景进游戏时。`onLoad` 里再调一次兜底，防止模块执行时配置还没就绪。
+ */
+function hideDisplayStats(): void {
+    // `cc.game.config` 由 `cc.game.init()` 写入；模块顶层执行时它一般已经存在，
+    // 极端时序下取不到就先跳过，交给 onLoad 的那次调用。
+    if (cc.game.config == null) {
+        return;
+    }
+    cc.debug.setDisplayStats(false);
+}
+
+hideDisplayStats();
+
 function urlParse(): { [key: string]: string } {
     var params: { [key: string]: string } = {};
     if (window.location == null) {
@@ -94,6 +116,8 @@ export default class AppStart extends cc.Component {
 
     // use this for initialization
     onLoad() {
+        // 兜底：模块顶层那次调用若因配置未就绪被跳过，这里补上（见 hideDisplayStats 的说明）。
+        hideDisplayStats();
         initMgr();
         cc.vv.utils.setFitSreenMode();
         console.log('haha');
