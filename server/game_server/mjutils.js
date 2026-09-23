@@ -249,13 +249,18 @@ for(k in seatData.tingMap){
 exports.checkTingPai = checkTingPai;
 
 exports.getMJType = function(pai){
-      if(id >= 0 && id < 9){
+      //参数名是 pai，下面的判断必须读同一个变量；写成 id 会抛 ReferenceError。
+      //gamemgr_xlch.js / gamemgr_xzdd.js 里各有一份同逻辑的本地实现，此处保持等价。
+      if(pai >= 0 && pai < 9){
+          //筒
           return 0;
       }
-      else if(id >= 9 && id < 18){
+      else if(pai >= 9 && pai < 18){
+          //条
           return 1;
       }
-      else if(id >= 18 && id < 27){
+      else if(pai >= 18 && pai < 27){
+          //万
           return 2;
       }
 }

@@ -7,9 +7,10 @@ exports.md5 = function (content) {
 }
 
 exports.toBase64 = function(content){
-	return new Buffer(content).toString('base64');
+	//使用 Buffer.from；new Buffer() 在当前 Node 上会打印弃用告警
+	return Buffer.from(content, 'utf8').toString('base64');
 }
 
 exports.fromBase64 = function(content){
-	return new Buffer(content, 'base64').toString();
+	return Buffer.from(content, 'base64').toString('utf8');
 }

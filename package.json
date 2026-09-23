@@ -1,0 +1,19 @@
+{
+  "name": "babykylin-scmj",
+  "version": "1.0.0",
+  "private": true,
+  "description": "幼麟四川麻将开源版 — Cocos Creator 2.4.15 client plus the Node.js account/hall/game server trio.",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "verify": "node tools/verify.mjs",
+    "verify:json": "node tools/verify.mjs --json",
+    "verify:list": "node tools/verify.mjs --list",
+    "check:syntax": "node tools/verify.mjs --only=syntax",
+    "check:harness": "node tools/verify.mjs --only=harness",
+    "check:protocol": "node tools/verify.mjs --only=protocol",
+    "check:smoke": "node tools/verify.mjs --only=smoke",
+    "test:tools": "node --test tools/selftest.test.mjs"
+  }
+}

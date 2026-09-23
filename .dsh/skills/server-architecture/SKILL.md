@@ -1,0 +1,126 @@
+---
+name: server-architecture
+description: The Node.js server trio in this project - account/hall/game processes, ports, the login handshake, HTTP routes, how the game manager is selected, and how to add or rename a Socket.IO push event safely. Use when changing server-side code, adding an API route, or adding a push event.
+---
+
+# 服务端架构与协议
+
+三个独立的 Node 进程共享一个 MySQL 库。**判断一个改动该落在哪个进程**，是这里最常见的错误来源。
+
+## 什么时候用
+
+- 改服务端任意文件。
+- 新增 HTTP 接口或 Socket.IO 推送。
+- 排查"客户端收不到 / 大厅服调不通游戏服"。
+
+## 1. 三进程与端口
+
+| 进程 | 入口 | 端口 | 对谁服务 | 传输 |
+| --- | --- | --- | --- | --- |
+| 账号服 | `repo:server/account_server/app.js` | 9000 / 12581 | 客户端、渠道代理 | Express HTTP |
+| 大厅服 | `repo:server/hall_server/app.js` | 9001 / 9002 | 客户端、游戏服 | Express HTTP |
+| 游戏服 | `repo:server/game_server/app.js` | 10000 / 9003 | 客户端、大厅服 | Socket.IO + Express HTTP |
+
+- 全部配置来自 `repo:server/configs_mac.js` 或 `repo:server/configs_win.js`，
+  由 `process.argv[2]` 传入：`node game_server/app.js ../configs_mac.js`。
+  配置是**函数式导出**（`exports.game_server = function(){...}`），两平台各一份，必须同步改。
+- `configs_mac.js` 带 BOM（首行 `\ufeffvar HALL_IP`），编辑时不要丢。
+
+进程内的文件分工：
+
+| 文件 | 角色 |
+| --- | --- |
+| `repo:server/game_server/socket_service.js` | **对局协议唯一入口**，所有 `socket.on(...)` 都在这里 |
+| `repo:server/game_server/http_service.js` | 给大厅服调用的内部接口，**四个接口都校验 `sign`** |
+| `repo:server/game_server/roommgr.js` | 房间内存表 + 按 `conf.type` 选择玩法实现 |
+| `repo:server/game_server/usermgr.js` | `userId → socket` 映射与推送助手 |
+| `repo:server/game_server/tokenmgr.js` | 房间登录 token 的生成与有效期校验 |
+| `repo:server/hall_server/client_service.js` | 面向客户端的 HTTP 接口 |
+| `repo:server/hall_server/room_service.js` | 向游戏服发起 HTTP 调用、维护房间登记 |
+| `repo:server/account_server/account_server.js` | 账号注册/登录（依赖 `fibers`） |
+| `repo:server/account_server/dealer_api.js` | 渠道/代理查询接口 |
+| `repo:server/utils/db.js` | **唯一** SQL 访问层 |
+| `repo:server/utils/http.js` | 统一 JSON 响应出口 `send()`，也依赖 `fibers` |
+| `repo:server/utils/crypto.js` | `md5` / `toBase64` / `fromBase64` |
+
+## 2. 登录与进房链路
+
+改签名或房间流程前，必须整条链路一起看：
+
+```
+1. 客户端 → 账号服  GET /guest                                 换取签名与大厅地址
+2. 客户端            cc.vv.http.url = "http://" + cc.vv.SI.hall   （UserMgr.js）
+3. 客户端 → 大厅服  GET /login?account=&sign=                  取得用户资料
+4. 客户端 → 大厅服  GET /enter_private_room?...                返回 {ip, port, token, roomid, time, sign}
+5. 客户端 → 游戏服  连接 ip:port，emit('login', {token, roomid, time, sign})
+6. 游戏服           校验 md5(roomid + token + time + ROOM_PRI_KEY) == sign，再校验 token 时效
+```
+
+第 4 步与第 6 步是同一套签名的两侧：拼接顺序、密钥、字段名任意一处不一致，就是**全员登录失败**。
+`tokenmgr.js` 负责 token 生成，`socket_service.js` 负责校验。
+
+进房的 socket 事件处理器会在登录成功后执行：
+`userMgr.bind(userId, socket)` 登记连接、取房间与座位、`socket.gameMgr = roomInfo.gameMgr`，
+之后所有业务动作都走 `socket.gameMgr.xxx(...)`。
+
+## 3. 玩法实现的选择
+
+`repo:server/game_server/roommgr.js` 按 `conf.type` 二选一。注意两处选择点变量不同名：
+新建房间读入参 `roomConf`（:147），从数据库恢复房间读 `roomInfo.conf`（:34）。
+
+```js
+if(roomConf.type == "xlch"){ roomInfo.gameMgr = require("./gamemgr_xlch"); }
+else                       { roomInfo.gameMgr = require("./gamemgr_xzdd"); }
+```
+
+两份实现约 **86%** 的行逐行相同（2289 / 2298 行），**改玩法必须考虑两份**。细节见
+`repo:.dsh/skills/game-rules/SKILL.md`。
+
+## 4. 推送事件：唯一的正确写法
+
+游戏服的推送**只能**经过 `repo:server/game_server/usermgr.js`：
+
+| 函数 | 语义 |
+| --- | --- |
+| `sendMsg(userId, event, data)` | 发给单个玩家；不在线则静默丢弃 |
+| `broacastInRoom(event, data, sender, includingSender)` | 广播给同房间座位（**拼写就是 `broacast`**，不要"顺手修正"） |
+| `kickAllInRoom(roomId)` | 踢出房间内所有连接 |
+
+登录/连接阶段（此时还没有房间可广播）有 7 处**直接 `socket.emit`** 的例外：
+`login_result`(×4)、`login_finished`、`exit_result`、`game_pong`。除此之外不要再写裸 `emit`——
+理由是可读性（读者一眼看出"发给房间"还是"发给个人"），
+**不是因为门禁扫不到**：`check:protocol` 同时识别裸 `emit(`，两种写法都能扫到。
+
+### 新增一个推送事件的完整清单
+
+1. 服务端：用 `userMgr.sendMsg` 或 `userMgr.broacastInRoom` 推送，事件名用小写蛇形 + `_push`
+   后缀（沿用现有命名，如 `game_begin_push`、`user_ready_push`）。
+2. 客户端：在 `repo:client/assets/scripts/GameNetMgr.js` 里
+   `cc.vv.net.addHandler("<event>", function(data){ ... self.dispatchEvent("<event>", data); })`；
+   再在需要的组件里 `this.node.on("<event>", fn)`。
+3. 跑 `npm run check:protocol`，它必须报绿。
+4. 在 `repo:docs/ai-native/protocol.md` 的事件表里补一行。
+
+**重命名事件是不可逆的破坏性操作**：必须两侧同时改，并确认没有历史回放依赖它。
+
+## 5. HTTP 接口约定
+
+- 新接口沿用 `repo:server/utils/http.js` 的 `send(res, errcode, errmsg, data)` 统一出口。
+  **但账号服是例外**：`account_server.js` 与 `dealer_api.js` 各自定义了本地
+  `send(res, ret)` 并直接 `res.send`，返回结构也更随意。改账号服时按它本地写法来。
+- 游戏服的内部接口（给大厅服调用）用 `sign` 校验，签名逻辑与登录链路同源。
+
+## 6. 约束与验证
+
+- **无法在本机启动服务**：账号服 `require('fibers')`（原生模块缺失），`db.js` 需要真实 MySQL。
+  不要用"能启动"当作验证手段。
+- `repo:server/tests/` 下是 2016 年的手工脚本，会连库、只打印不断言，**不是测试套件**。
+- 不要提交 `nohup.out`、日志、数据库转储。
+
+```bash
+npm run verify             # 五项全跑
+npm run check:protocol     # 动了任何事件名必跑
+npm run check:smoke        # 动了 crypto / mjutils 必跑
+```
+
+需要真实运行时才能确认的改动，在提交说明里写"未运行时验证"并列出依赖的静态证据。

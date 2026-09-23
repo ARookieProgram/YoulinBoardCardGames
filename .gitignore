@@ -1,0 +1,28 @@
+# 仓库根级忽略规则
+# 客户端自带的 client/.gitignore 只覆盖 Creator 产物，这里是仓库级的运行期垃圾。
+
+# 服务端 nohup 启动方式（start_all*.sh）产生的输出
+nohup.out
+server/nohup.out
+
+# 日志与数据库转储
+*.log
+*.sql.gz
+*.sql.bak
+*.dump
+
+# 数据库凭据的本地覆盖：只放你自己的口令，不要提交
+configs_local.js
+configs_secret.js
+
+# 本机 AI 会话的私有指令（AGENTS.local.md 约定，见 AGENTS.md §6）
+AGENTS.local.md
+CLIENT.local.md
+client/AGENTS.local.md
+server/AGENTS.local.md
+
+# 编辑器与系统
+.DS_Store
+*.swp
+.idea/
+.vscode/settings.json
