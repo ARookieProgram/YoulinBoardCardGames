@@ -17,7 +17,8 @@
 | `repo:client/local/` | 本机编辑器设置（已在 `.gitignore`） |
 | `repo:client/build/` | 构建输出（已在 `.gitignore`） |
 
-- `repo:client/tsconfig.json` 只服务 `tsc --noEmit` 与编辑器补全，**不是** Creator 的项目配置。
+- `repo:client/tsconfig.json` 是 Creator 编译脚本时实际读取的配置（产物里 `class` / `let` 保留，
+  对应 `target: es6`），同时供 `tsc --noEmit` 与编辑器补全使用。
 - `repo:client/types/` 是**手写的共享类型声明**（`cc.vv` 单例、域模型、引擎补丁），属于源码。
 
 - `repo:client/creator.d.ts` 是引擎类型声明，供编辑器补全用；**它不是文档，改代码前不要依赖它推断 API**。
@@ -26,14 +27,45 @@
 
 ## 2. 代码风格
 
-与仓库整体一致：ES5 + `cc.Class`，`var` + `function`，分号风格沿用文件内既有写法；
-但**源码是 TypeScript**（`assets/scripts/` 下一方脚本全是 `.ts`）。新增节点不要引入 `class`、
-`@ccclass`、箭头函数、`let/const` 或打包器——2.4.15 的构建链不会替你转译，
-`.ts` 由 Creator 自己编译，而且只允许**可擦除的类型标注**（不许 `enum` / `namespace` /
-`import x = require()` / 构造函数参数属性）。
+**组件与管理器一律用 ES6 `class` + `cc._decorator` 的 `@ccclass` / `@property` 声明，不再使用
+`cc.Class({...})`**：
 
+```ts
+const { ccclass, property } = cc._decorator;
+
+@ccclass
+export default class Hall extends cc.Component {
+    @property(cc.Label) lblName: cc.Label | null = null;
+
+    onLoad() { /* ... */ }
+}
+```
+
+Creator 2.4.15 自己编译这些 `.ts`：产物里 `class` / `let` 原样保留（对应 `tsconfig.json` 的
+`target: es6`）、装饰器编译成 `__decorate` 辅助函数，说明走的是**内置 TypeScript**（按
+`repo:client/tsconfig.json` 的选项），模块壳再由编辑器的 quick-compile 套上；
+编辑器里另有一份 quick-compile 的 Babel 配置（`plugins/babel.js`），**两条管线的模块互操作不一致**，
+所以类文件末尾那行显式 `module.exports = 类名;` 是必需的（见下面第 4 条）。
+
+- **默认不重构**：`class` 结构之外的写法（方法体里的 `var` / `function` / 回调、字符串字面量、
+  函数名、事件名、注释）保持原样，改造只做"把 `cc.Class` 换成 `class`"这一件事。
+- **属性一一对应**：老的 `properties` 每一项都要变成**一个** `@property` 字段，**名称、默认值、
+  类型三者都不能变**（默认值写在字段初始化器里）。老代码里的简写 `foo: cc.Node` 等价于
+  `@property(cc.Node) foo: cc.Node | null = null`（引擎 `preprocess-class.js` 的
+  `getFullFormOfProperty` 把类型构造器规范化成 `{default: null, type: cc.Node}`）。
+- `@ccclass` **不要传类名**：项目组件的类名由引擎取脚本名（`cc._RF.push` 的第 3 个参数），
+  传名字会触发引擎告警，并且 `node.addComponent("OnBack")` 这类按类名的查找靠的就是脚本名。
+- **每个类文件末尾必须有一行 `module.exports = <类名>;`**（`HTTP.ts` 没有类，不适用）。
+  Creator 的 `require("X")` 取的是 `module.exports`，而 `export default class X` 经 `tsc`
+  （`module: commonjs`）只编译成 `exports.default`——漏了这行，`new (require("UserMgr"))()`
+  会在启动时直接抛 `UserMgr is not a constructor`。`types` 门禁会拦住这种漏写。
+- **只允许可擦除的类型标注**（不许 `enum` / `namespace` / `import x = require()` /
+  构造函数参数属性），`type` / `interface` / `as` / `!` / `declare` 字段都可以用。
+  门禁的 `types` 项会扫 `client/` 一方源码，**残留 `cc.Class(` 直接失败**。
+- 生命周期 `update` 写成 `update(dt: number = 0)`：`creator.d.ts` 把 `cc.Component.update`
+  误声明成无参方法，可选形参才能通过重写检查（引擎每帧调用时总会传 dt）。
 - 共享类型在 `repo:client/types/`：`cc-vv.d.ts` 是 `cc.vv` 上全部单例的接口，`domain.d.ts` 是
-  网络推送载荷与对局域模型，`cc-class.d.ts` 给 `cc.Class` 的 `this` 补类型。
+  网络推送载荷与对局域模型，`cc-augment.d.ts` 补引擎声明缺口（含 `cc._decorator`）。
 - `.js` 改成 `.ts` 时**必须把同名 `.meta` 一起改名并保留 `uuid`**——场景 `.fire` 靠 uuid 引用脚本组件。
 - 逐条迁移规矩见 `repo:docs/ai-native/client-typescript-migration.md`。
 

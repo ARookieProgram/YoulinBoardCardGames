@@ -1,28 +1,27 @@
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        // foo: {
-        //    default: null,      // The default value will be used only when the component attaching
-        //                           to a node for the first time
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        _lastTouchTime:null as number | null,
-        _voice:null as cc.Node | null,
-        _volume:null as cc.Node | null,
-        _voice_failed:null as cc.Node | null,
-        _lastCheckTime:-1,
-        _timeBar:null as cc.Node | null,
-        MAX_TIME:15000,
-    },
+@ccclass
+export default class Voice extends cc.Component {
+    // foo: {
+    //    default: null,      // The default value will be used only when the component attaching
+    //                           to a node for the first time
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property _lastTouchTime: number | null = null;
+    @property _voice: cc.Node | null = null;
+    @property _volume: cc.Node | null = null;
+    @property _voice_failed: cc.Node | null = null;
+    @property _lastCheckTime: number = -1;
+    @property _timeBar: cc.Node | null = null;
+    @property MAX_TIME: number = 15000;
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         
         this._voice = cc.find("Canvas/voice");
         this._voice!.active = false;
@@ -77,9 +76,9 @@ cc.Class({
                 self._voice!.active = false;
             });
         }
-    },
-    
-    onVoiceOK:function(){
+    }
+
+    onVoiceOK(){
         if(this._lastTouchTime != null){
             cc.vv.voiceMgr.release();
             var time = Date.now() - this._lastTouchTime!;
@@ -88,14 +87,14 @@ cc.Class({
             cc.vv.net.send("voice_msg",{msg:msg,time:time} as VoiceMsgContent);
         }
         this._voice!.active = false;
-    },
-    
-    onBtnOKClicked:function(){
+    }
+
+    onBtnOKClicked(){
         this._voice!.active = false;
-    },
+    }
 
     // called every frame, uncomment this function to activate update callback
-    update: function (dt: number) {
+    update(dt: number = 0) {
         if(this._voice!.active == true && this._voice_failed!.active == false){
             if(Date.now() - this._lastCheckTime > 300){
                 for(var i = 0; i < this._volume!.children.length; ++i){
@@ -120,7 +119,9 @@ cc.Class({
                 this._timeBar!.scaleX = 1 - percent;
             }
         }
-    },
-});
+    }
+}
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = Voice;

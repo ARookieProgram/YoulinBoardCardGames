@@ -17,37 +17,33 @@ interface SeatApi extends cc.Component {
     emoji(emoji: string): void;
 }
 
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        lblRoomNo:{
-            default:null as cc.Label | null,
-            type:cc.Label
-        },
-        // foo: {
-        //    default: null,
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        _seats:[] as SeatApi[],
-        _seats2:[] as SeatApi[],
-        _timeLabel:null as cc.Label | null,
-        _voiceMsgQueue:[] as ChatPush[],
-        _lastPlayingSeat:null as number | null,
-        _playingSeat:null as number | null,
-        _lastPlayTime:null as number | null,
-    },
+@ccclass
+export default class MJRoom extends cc.Component {
+    @property({type: cc.Label}) lblRoomNo: cc.Label | null = null as cc.Label | null;
+    // foo: {
+    //    default: null,
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property _seats: SeatApi[] = [];
+    @property _seats2: SeatApi[] = [];
+    @property _timeLabel: cc.Label | null = null;
+    @property _voiceMsgQueue: ChatPush[] = [];
+    @property _lastPlayingSeat: number | null = null;
+    @property _playingSeat: number | null = null;
+    @property _lastPlayTime: number | null = null;
 
     // 运行时动态字段（update 里才赋值），没有补初始值。
-    _lastMinute: undefined as number | undefined,
+    declare _lastMinute: number | undefined;
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         if(cc.vv == null){
             return;
         }
@@ -55,9 +51,9 @@ cc.Class({
         this.initView();
         this.initSeats();
         this.initEventHandlers();
-    },
-    
-    initView:function(){
+    }
+
+    initView(){
         var prepare = this.node.getChildByName("prepare");
         var seats = prepare.getChildByName("seats");
         for(var i = 0; i < seats.children.length; ++i){
@@ -97,9 +93,9 @@ cc.Class({
             
             titles.getChildByName(type).active = true;   
         }
-    },
-    
-    refreshBtns:function(){
+    }
+
+    refreshBtns(){
         var prepare = this.node.getChildByName("prepare");
         var btnExit = prepare.getChildByName("btnExit");
         var btnDispress = prepare.getChildByName("btnDissolve");
@@ -110,9 +106,9 @@ cc.Class({
         btnDispress.active = cc.vv.gameNetMgr.isOwner() && isIdle;
         
         btnWeichat.active = isIdle;
-    },
-    
-    initEventHandlers:function(){
+    }
+
+    initEventHandlers(){
         var self = this;
         this.node.on('new_user',function(data: SeatData){
             self.initSingleSeat(data);
@@ -184,16 +180,16 @@ cc.Class({
             self._seats[localIdx].emoji(data.content as string);
             self._seats2[localIdx].emoji(data.content as string);
         });
-    },
-    
-    initSeats:function(){
+    }
+
+    initSeats(){
         var seats = cc.vv.gameNetMgr.seats!;
         for(var i = 0; i < seats.length; ++i){
             this.initSingleSeat(seats[i]);
         }
-    },
-    
-    initSingleSeat:function(seat: SeatData){
+    }
+
+    initSingleSeat(seat: SeatData){
         var index = cc.vv.gameNetMgr.getLocalIndex(seat.seatindex);
         var isOffline = !seat.online;
         var isZhuang = seat.seatindex == cc.vv.gameNetMgr.button;
@@ -212,42 +208,42 @@ cc.Class({
         this._seats2[index].setID(seat.userid);
         this._seats2[index].voiceMsg(false);
         this._seats2[index].refreshXuanPaiState();
-    },
-    
-    onBtnSettingsClicked:function(){
-        cc.vv.popupMgr.showSettings();   
-    },
+    }
 
-    onBtnBackClicked:function(){
+    onBtnSettingsClicked(){
+        cc.vv.popupMgr.showSettings();   
+    }
+
+    onBtnBackClicked(){
         cc.vv.alert!.show("返回大厅","返回大厅房间仍会保留，快去邀请大伙来玩吧！",function(){
             cc.vv.wc.show('正在返回游戏大厅');
             cc.director.loadScene("hall");    
         },true);
-    },
-    
-    onBtnChatClicked:function(){
+    }
+
+    onBtnChatClicked(){
         
-    },
-    
-    onBtnWeichatClicked:function(){
+    }
+
+    onBtnWeichatClicked(){
         var title = "<血战到底>";
         if(cc.vv.gameNetMgr.conf!.type == "xlch"){
             var title = "<血流成河>";
         }
         cc.vv.anysdkMgr.share("天天麻将" + title,"房号:" + cc.vv.gameNetMgr.roomId! + " 玩法:" + cc.vv.gameNetMgr.getWanfa());
-    },
-    
-    onBtnDissolveClicked:function(){
+    }
+
+    onBtnDissolveClicked(){
         cc.vv.alert!.show("解散房间","解散房间不扣房卡，是否确定解散？",function(){
             cc.vv.net.send("dispress");    
         },true);
-    },
-    
-    onBtnExit:function(){
+    }
+
+    onBtnExit(){
         cc.vv.net.send("exit");
-    },
-    
-    playVoice:function(){
+    }
+
+    playVoice(){
         if(this._playingSeat == null && this._voiceMsgQueue.length){
             console.log("playVoice2");
             var data = this._voiceMsgQueue.shift()!;
@@ -266,10 +262,11 @@ cc.Class({
             cc.vv.voiceMgr.play(msgfile);
             this._lastPlayTime = Date.now() + msgInfo.time;
         }
-    },
+    }
+
     
     // called every frame, uncomment this function to activate update callback
-    update: function (dt: number) {
+    update(dt: number = 0) {
         var minutes = Math.floor(Date.now()/1000/60);
         if(this._lastMinute != minutes){
             this._lastMinute = minutes;
@@ -293,22 +290,23 @@ cc.Class({
         else{
             this.playVoice();
         }
-    },
-    
-        
-    onPlayerOver:function(){
+    }
+
+    onPlayerOver(){
         cc.vv.audioMgr.resumeAll();
         console.log("onPlayCallback:" + this._playingSeat);
         var localIndex = this._playingSeat;
         this._playingSeat = null;
         this._seats[localIndex!].voiceMsg(false);
         this._seats2[localIndex!].voiceMsg(false);
-    },
-    
-    onDestroy:function(){
+    }
+
+    onDestroy(){
         cc.vv.voiceMgr.stop();
 //        cc.vv.voiceMgr.onPlayCallback = null;
     }
-});
+}
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = MJRoom;

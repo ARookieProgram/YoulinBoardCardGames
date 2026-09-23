@@ -1,24 +1,24 @@
 // 碰杠：四个座位碰牌/杠牌的摆放与显示。
 //
-// 本文件是 ES5 风格（cc.Class / var / function）的 TypeScript 迁移产物：
+// 本文件用 ES6 class + @ccclass/@property 装饰器（Creator 2.4 的官方写法）：
 // 运行时行为与迁移前的 PengGangs.js 完全一致，只补了类型标注与本地事件载荷的类型断言。
-cc.Class({
-    extends: cc.Component,
 
-    properties: {
-        // foo: {
-        //    default: null,
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-    },
+const { ccclass } = cc._decorator;
+
+@ccclass
+export default class PengGangs extends cc.Component {
+    // foo: {
+    //    default: null,
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         if(!cc.vv){
             return;
         }
@@ -55,16 +55,16 @@ cc.Class({
             // for...in 的循环变量类型是 string，老代码就是按下标取的，这里只补一次类型断言。
             this.onPengGangChanged(seats[i as unknown as number]);
         }
-    },
-    
-    onGameBein:function(){
+    }
+
+    onGameBein(){
         this.hideSide("myself");
         this.hideSide("right");
         this.hideSide("up");
         this.hideSide("left");
-    },
-    
-    hideSide:function(side: string){
+    }
+
+    hideSide(side: string){
         var gameChild = this.node.getChildByName("game");
         var myself = gameChild.getChildByName(side);
         var pengangroot = myself.getChildByName("penggangs");
@@ -73,9 +73,9 @@ cc.Class({
                 pengangroot.children[i].active = false;
             }            
         }
-    },
-    
-    onPengGangChanged:function(seatData: SeatData){
+    }
+
+    onPengGangChanged(seatData: SeatData){
         
         if(seatData.angangs == null && seatData.diangangs == null && seatData.wangangs == null && seatData.pengs == null){
             return;
@@ -125,9 +125,9 @@ cc.Class({
                 index++;    
             }    
         }        
-    },
-    
-    initPengAndGangs:function(pengangroot: cc.Node,side: string,pre: string,index: number,mjid: Pai,flag: string){
+    }
+
+    initPengAndGangs(pengangroot: cc.Node,side: string,pre: string,index: number,mjid: Pai,flag: string){
         var pgroot: cc.Node | null = null;
         if(pengangroot.childrenCount <= index){
             if(side == "left" || side == "right"){
@@ -183,13 +183,12 @@ cc.Class({
                 sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,mjid);
             }
         }
-    },
-
+    }
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-});
+}
 
 /** `gang_notify` 本地事件的载荷形状（`GameNetMgr.doGang` 组装，不是网络原始载荷）。 */
 interface GangNotifyLocal {
@@ -197,4 +196,6 @@ interface GangNotifyLocal {
     gangtype: string;
 }
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = PengGangs;

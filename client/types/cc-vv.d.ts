@@ -4,9 +4,9 @@
  * `AppStart.initMgr()` 里 `cc.vv = {}` 是个**裸对象字面量**，逐个挂上下面这些成员；
  * 本文件把这条隐式契约显式化。几个容易踩的点：
  *
- *  - `cc.vv.net` / `cc.vv.global` **不是实例**，而是 `require(...)` 得到的 cc.Class 构造函数本身
- *    （字段都在 `statics` 里），所以类型直接写成「带这些成员的类对象」，**不要 `new` 它们**
- *    （`new` 出来的实例会与原类共享 statics 里的 handlers/sio）。
+ *  - `cc.vv.net` / `cc.vv.global` **不是实例**，而是 `require(...)` 得到的类本身
+ *    （成员全在 `static` 上），所以类型直接写成「带这些成员的类对象」，**不要 `new` 它们**
+ *    （`new` 出来的实例会与原类共享 static 里的 handlers/sio）。
  *  - `cc.vv.http` 是 `HTTP.js` 的 CommonJS exports 对象。
  *  - 组件在自己 `onLoad` 里挂上来的单例（`alert` / `wc` / `chat` / `popupMgr` / `userinfoShow` /
  *    `radiogroupmgr` / `mahjongmgr`）可能还没加载，声明里保留可空，调用点沿用原有的判空写法。

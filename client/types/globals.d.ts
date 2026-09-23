@@ -11,6 +11,17 @@
 /** Creator 的脚本模块加载器：按资源名加载 `assets/scripts` 下的模块，如 `require("HTTP")`。 */
 declare function require(moduleName: string): unknown;
 
+/**
+ * Creator 为每个脚本生成的模块壳是 `__define(exports, require, module)`，CommonJS 的
+ * `module` / `exports` 都由运行时传进来（老 `.js` 脚本一直这么用）。
+ *
+ * 组件文件末尾需要 `module.exports = 类名;`：`require("X")` 取的是 **`module.exports`**，
+ * 而 `export default class` 经 `tsc`（`module: commonjs`）只会写成 `exports.default`，
+ * 于是 `new (require("UserMgr"))()` 会报 "is not a constructor"。声明 `module` 只为让那行
+ * 赋值通过类型检查，运行时写的还是模块壳传进来的同一个对象。
+ */
+declare var module: { exports: unknown };
+
 /** vendored socket.io 客户端（`assets/scripts/3rdparty/socket-io.js`）挂在 `window.io` 上。 */
 interface Window {
     io: SocketIOClient;

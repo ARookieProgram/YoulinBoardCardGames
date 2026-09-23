@@ -36,7 +36,7 @@ npm run test:tools                  # 只跑检查器自测
 | 名称 | 断言 | 失败意味着 |
 | --- | --- | --- |
 | `syntax` | 共 80 个一方 `.js` / `.ts`：`.js` 用 `vm.Script` 编译、`.ts` 用 Node 内置 `module.stripTypeScriptTypes` 擦类型解析（**都只编译不执行**），并顺带强制 `.ts` 只用可擦除语法 | 有语法错误，运行时必崩；或用了 `enum` / `namespace` / `import x = require()` / 构造函数参数属性 |
-| `types` | 两半：① **no-any 审计**（零依赖，永远执行）扫 `server/` 下所有一方 `.ts`，注释先抹掉但保留行号，`: any` / `as any` / `<any>` / `@ts-ignore` / `@ts-expect-error` 一律失败；② 装了 `server/node_modules/typescript` 时再跑 `tsc --noEmit -p tsconfig.json`（`strict: true`） | 服务端有类型错误，或用了类型逃生舱。缺编译器时 ② 显示 **skipped**（并说明原因）而 ① 仍然执行，不是通过 |
+| `types` | 两半：① **no-any 审计**（零依赖，永远执行）扫 `server/` 与 `client/` 下所有一方 `.ts`，注释先抹掉但保留行号，`: any` / `as any` / `<any>` / `@ts-ignore` / `@ts-expect-error` 一律失败；同一遍扫描在 `client/` 里还查两件事：残留的 `cc.Class(`、以及「有 `export default class X` 就必须有 `module.exports = X;`」（Creator 的 `require("X")` 取 `module.exports`，漏了就报 "X is not a constructor"）；② 装了 `server/node_modules/typescript` 时再跑两棵树的 `tsc --noEmit -p tsconfig.json`（`strict: true`） | 服务端/客户端有类型错误，用了类型逃生舱，客户端写回 `cc.Class`，或类文件漏了 `module.exports`。缺编译器时 ② 显示 **skipped**（并说明原因）而 ① 仍然执行，不是通过 |
 | `harness` | `AGENTS.md`×3 与 `.dsh/skills/*/SKILL.md` 存在、frontmatter 合法、`repo:` 路径存在 | Harness 会**静默**忽略这些知识 |
 | `protocol` | Socket.IO 事件词汇表两端逐字对齐 | 客户端收不到、或永远等不到某事件 |
 | `smoke` | 麻将听牌判定、花色边界、MD5/Base64，加上 `String.prototype.format` 的三种形态与 `http.queryString` / `queryInt` 契约，共 19 条断言 | 纯逻辑被改坏 |

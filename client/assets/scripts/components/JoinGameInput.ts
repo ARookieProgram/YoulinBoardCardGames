@@ -1,6 +1,6 @@
 /**
- * 组件实例上被嵌套回调用到的成员：cc.Class 的 ThisType 只作用于 options 对象本身，
- * 包在 `.bind(this)` 里的 function 拿不到它，所以显式声明一个 this 类型。
+ * 组件实例上被嵌套回调用到的成员：包在 `.bind(this)` 里的 function 拿不到
+ * 类方法的 `this` 类型，所以显式声明一个 this 类型。
  * `function (this: ...)` 是可擦除语法，运行时签名不变。
  */
 interface JoinGameInputSelf extends cc.Component {
@@ -9,36 +9,32 @@ interface JoinGameInputSelf extends cc.Component {
     onResetClicked(): void;
 }
 
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        nums:{
-            default:[] as cc.Label[],
-            type:[cc.Label]
-        },
-        _inputIndex:0,
-        // foo: {
-        //    default: null,
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-    },
+@ccclass
+export default class JoinGameInput extends cc.Component {
+    @property({type: [cc.Label]}) nums: cc.Label[] = [] as cc.Label[];
+    @property _inputIndex: number = 0;
+    // foo: {
+    //    default: null,
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         
-    },
-    
-    onEnable:function(){
+    }
+
+    onEnable(){
         this.onResetClicked();
-    },
-    
-    onInputFinished:function(roomId: string){
+    }
+
+    onInputFinished(roomId: string){
         cc.vv.userMgr.enterRoom(roomId,function(this: JoinGameInputSelf, ret: HttpResp){
             if(ret.errcode == 0){
                 this.node.active = false;
@@ -52,9 +48,9 @@ cc.Class({
                 this.onResetClicked();
             }
         }.bind(this)); 
-    },
-    
-    onInput:function(num: number){
+    }
+
+    onInput(num: number){
         if(this._inputIndex >= this.nums.length){
             return;
         }
@@ -67,66 +63,79 @@ cc.Class({
             console.log("ok:" + roomId);
             this.onInputFinished(roomId);
         }
-    },
-    
-    onN0Clicked:function(){
+    }
+
+    onN0Clicked(){
         this.onInput(0);  
-    },
-    onN1Clicked:function(){
+    }
+
+    onN1Clicked(){
         this.onInput(1);  
-    },
-    onN2Clicked:function(){
+    }
+
+    onN2Clicked(){
         this.onInput(2);
-    },
-    onN3Clicked:function(){
+    }
+
+    onN3Clicked(){
         this.onInput(3);
-    },
-    onN4Clicked:function(){
+    }
+
+    onN4Clicked(){
         this.onInput(4);
-    },
-    onN5Clicked:function(){
+    }
+
+    onN5Clicked(){
         this.onInput(5);
-    },
-    onN6Clicked:function(){
+    }
+
+    onN6Clicked(){
         this.onInput(6);
-    },
-    onN7Clicked:function(){
+    }
+
+    onN7Clicked(){
         this.onInput(7);
-    },
-    onN8Clicked:function(){
+    }
+
+    onN8Clicked(){
         this.onInput(8);
-    },
-    onN9Clicked:function(){
+    }
+
+    onN9Clicked(){
         this.onInput(9);
-    },
-    onResetClicked:function(){
+    }
+
+    onResetClicked(){
         for(var i = 0; i < this.nums.length; ++i){
             this.nums[i].string = "";
         }
         this._inputIndex = 0;
-    },
-    onDelClicked:function(){
+    }
+
+    onDelClicked(){
         if(this._inputIndex > 0){
             this._inputIndex -= 1;
             this.nums[this._inputIndex].string = "";
         }
-    },
-    onCloseClicked:function(){
+    }
+
+    onCloseClicked(){
         this.node.active = false;
-    },
-    
-    parseRoomID:function(): string{
+    }
+
+    parseRoomID(): string{
         var str = "";
         for(var i = 0; i < this.nums.length; ++i){
             str += this.nums[i].string;
         }
         return str;
     }
-
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-});
+}
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = JoinGameInput;

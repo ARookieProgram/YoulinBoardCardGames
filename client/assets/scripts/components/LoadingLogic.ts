@@ -1,23 +1,22 @@
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        tipLabel:cc.Label as unknown as cc.Label | null,
-        _stateStr:'',
-        _progress:0.0,
-        // 老代码里没有用到这个字段，也没有任何赋值，类型无从判断，按 unknown 声明。
-        _splash:null as unknown,
-        _isLoading:false,
-    },
+@ccclass
+export default class LoadingLogic extends cc.Component {
+    @property(cc.Label) tipLabel: cc.Label | null = null;
+    @property _stateStr: string = '';
+    @property _progress: number = 0.0;
+    // 老代码里没有用到这个字段，也没有任何赋值，类型无从判断，按 unknown 声明。
+    @property _splash: unknown = null;
+    @property _isLoading: boolean = false;
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         cc.vv.utils.setFitSreenMode();
         this.tipLabel!.string = this._stateStr;
         this.startPreloading();
-    },
-    
-    startPreloading:function(){
+    }
+
+    startPreloading(){
         this._stateStr = "正在加载资源，请稍候"
         this._isLoading = true;
         var self = this;
@@ -33,16 +32,16 @@ cc.Class({
         //    self.onLoadComplete();
         //});
         self.onLoadComplete();      
-    },
-    
-    onLoadComplete:function(){
+    }
+
+    onLoadComplete(){
         this._isLoading = false;
         this._stateStr = "准备登陆";
         cc.director.loadScene("login");
-    },
+    }
 
     // called every frame, uncomment this function to activate update callback
-    update: function (dt: number) {
+    update(dt: number = 0) {
         if(this._stateStr.length == 0){
             return;
         }
@@ -57,5 +56,8 @@ cc.Class({
             }            
         }
     }
-});
-export { };
+}
+
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = LoadingLogic;

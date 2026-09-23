@@ -91,9 +91,16 @@ start → loading → login → createrole ─┐
 2. **不要手写 `.fire`。** 场景是序列化 JSON，结构由 Creator 维护。用编辑器改。
 3. **不要改 `repo:client/assets/scripts/3rdparty/socket-io.js`。** 它是 vendored 库，
    `syntax` 与 `protocol` 检查都刻意跳过它。
-4. **不要引入 `class` / 箭头函数 / `let` / `const` / 打包器。** 2.4.15 的构建链不转译，
-   引擎与运行时都不保证支持。沿用 `cc.Class` + `var` + `function`。
-5. **不要相信 `repo:client/creator.d.ts` 是文档。** 它是编辑器补全用的类型声明，
+4. **组件不要再用 `cc.Class({...})`，一律写 ES6 `class` + `@ccclass` / `@property`**
+   （见 `repo:client/AGENTS.md` §2）。Creator 用内置 TypeScript 编译项目脚本，`class` /
+   装饰器 / `let` / `const` / 箭头函数都能用，但**方法体里仍然沿用 `var` / `function` / 回调的
+   老写法**，并且只允许可擦除的类型标注（不许 `enum` / `namespace` / `import x = require()` /
+   构造函数参数属性）；也不要为客户端引入打包器。
+5. **忘了 `module.exports = <类名>;` 会让游戏一启动就崩。** `require("X")` 取的是
+   `module.exports`，而 `export default class X` 只编译成 `exports.default`，于是
+   `new (require("UserMgr"))()` 直接抛 `UserMgr is not a constructor`。每个类文件末尾都要写
+   这一行（`types` 门禁会拦），`HTTP.ts` 是纯 CommonJS 模块、没有类，不适用。
+6. **不要相信 `repo:client/creator.d.ts` 是文档。** 它是编辑器补全用的类型声明，
    体积 445KB，与真实引擎行为可能有出入；要确认 API 请查引擎源码或既有用法。
 
 ## 5. 运行时验证的边界
@@ -101,7 +108,9 @@ start → loading → login → createrole ─┐
 客户端**无法在本仓库内无头编译**：构建依赖图形化编辑器，`library/`、`temp/` 的产物也是按本机
 路径生成的（不要提交它们，也不要把它们当作可复现证据）。
 
-所以你能给出的客观证据只有 `npm run check:syntax` 与 `npm run check:protocol`。
+所以你能给出的客观证据是 `npm run check:syntax`（80 个脚本都能解析）、
+`server/node_modules/.bin/tsc --noEmit -p client/tsconfig.json`（strict 类型）与
+`npm run check:protocol`（事件名对齐），一次性跑完用 `npm run verify`。
 其余必须在 Creator 编辑器里人工验证。交付说明里要写清：
 
 - 改了哪些组件；

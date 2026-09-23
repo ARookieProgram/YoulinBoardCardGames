@@ -1,33 +1,33 @@
 //背景图缩放器。用于缩放背景
-cc.Class({
-    extends: cc.Component,
 
-    properties: {
-        // foo: {
-        //     // ATTRIBUTES:
-        //     default: null,        // The default value will be used only when the component attaching
-        //                           // to a node for the first time
-        //     type: cc.SpriteFrame, // optional, default is typeof default
-        //     serializable: true,   // optional, default is true
-        // },
-        // bar: {
-        //     get () {
-        //         return this._bar;
-        //     },
-        //     set (value) {
-        //         this._bar = value;
-        //     }
-        // },
+const { ccclass, property } = cc._decorator;
 
-        //适配模式
-        //
-        //
-        //
-        scaleMethod:0,
-    },
+@ccclass
+export default class BGScaler extends cc.Component {
+    // foo: {
+    //     // ATTRIBUTES:
+    //     default: null,        // The default value will be used only when the component attaching
+    //                           // to a node for the first time
+    //     type: cc.SpriteFrame, // optional, default is typeof default
+    //     serializable: true,   // optional, default is true
+    // },
+    // bar: {
+    //     get () {
+    //         return this._bar;
+    //     },
+    //     set (value) {
+    //         this._bar = value;
+    //     }
+    // },
+
+    //适配模式
+    //
+    //
+    //
+    @property scaleMethod: number = 0;
 
     // LIFE-CYCLE CALLBACKS:
-    start () {
+    start() {
         //0、居中（居中其实不需要挂这个脚本，浪费效率）
         //1、宽高都根据高度拉伸
         //2、长边充满
@@ -56,9 +56,10 @@ cc.Class({
                 this.node.height = this.node.width / oldWidth * this.node.height;
             }
         }
-    },
-
+    }
     // update (dt) {},
-});
+}
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = BGScaler;

@@ -1,21 +1,20 @@
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        // foo: {
-        //    default: null,
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        _folds:null as { [side: string]: cc.Sprite[] } | null,
-    },
+@ccclass
+export default class Folds extends cc.Component {
+    // foo: {
+    //    default: null,
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property _folds: { [side: string]: cc.Sprite[] } | null = null;
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         if(cc.vv == null){
             return;
         }
@@ -24,9 +23,9 @@ cc.Class({
         this.initEventHandler();
         
         this.initAllFolds();
-    },
-    
-    initView:function(){
+    }
+
+    initView(){
         this._folds = {};
         var game = this.node.getChildByName("game");
         var sides = ["myself","right","up","left"];
@@ -47,9 +46,9 @@ cc.Class({
         }
         
         this.hideAllFolds();
-    },
-    
-    hideAllFolds:function(){
+    }
+
+    hideAllFolds(){
         for(var k in this._folds){
             // 老代码这里写的是内层循环的 i（var 提升，此刻是 undefined），照旧不改：
             // 运行时仍是 this._folds[undefined]，这个函数实际不做事。`i!` 只是让 tsc 接受这种写法。
@@ -58,9 +57,9 @@ cc.Class({
                 f[i].node.active = false;
             }
         }
-    },
-    
-    initEventHandler:function(){
+    }
+
+    initEventHandler(){
         var self = this;
         this.node.on('game_begin',function(data){
             self.initAllFolds();
@@ -78,17 +77,17 @@ cc.Class({
         this.node.on('guo_notify',function(data){
             self.initFolds(data as SeatData);
         });
-    },
-    
-    initAllFolds:function(){
+    }
+
+    initAllFolds(){
         var seats = cc.vv.gameNetMgr.seats;
         for(var i in seats){
             // for...in 的键是字符串，老代码直接拿它当数组下标（运行时等价），这里断言成 number 供类型检查。
             this.initFolds(seats![i as unknown as number]);
         }
-    },
-    
-    initFolds:function(seatData: SeatData){
+    }
+
+    initFolds(seatData: SeatData){
         var folds = seatData.folds;
         if(folds == null){
             return;
@@ -117,17 +116,18 @@ cc.Class({
             sprite.spriteFrame = null as unknown as cc.SpriteFrame;
             sprite.node.active = false;
         }  
-    },
-    
-    setSpriteFrameByMJID:function(pre: string, sprite: cc.Sprite, mjid: Pai){
+    }
+
+    setSpriteFrameByMJID(pre: string, sprite: cc.Sprite, mjid: Pai){
         sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,mjid);
         sprite.node.active = true;
-    },
-
+    }
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-});
+}
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = Folds;

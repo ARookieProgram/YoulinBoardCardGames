@@ -1,6 +1,6 @@
 // 启动入口：组装 cc.vv 单例、初始化各管理器、解析启动参数，最后决定进哪个场景。
 //
-// 本文件是 ES5 风格（cc.Class / var / function）的 TypeScript 迁移产物：
+// 本文件用 ES6 class + @ccclass/@property 装饰器（Creator 2.4 的官方写法）：
 // 运行时行为与迁移前的 AppStart.js 完全一致，只补了类型标注与跨网络边界的断言。
 
 // `showSplash` 与 `cc.loader.load` 的回调都通过 `.bind(this)` 绑到组件实例上；
@@ -68,38 +68,32 @@ function initMgr() {
     cc.args = urlParse();
 }
 
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        // foo: {
-        //    default: null,      // The default value will be used only when the component attaching
-        //                           to a node for the first time
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        label: {
-            default: null as cc.Label | null,
-            type:cc.Label
-        },
+@ccclass
+export default class AppStart extends cc.Component {
+    // foo: {
+    //    default: null,      // The default value will be used only when the component attaching
+    //                           to a node for the first time
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property({type: cc.Label}) label: cc.Label | null = null as cc.Label | null;
+    // 老写法是简写 `loadingProgess: cc.Label`：引擎会规范化成 { default: null, type: cc.Label }。
+    // 这里用 @property(cc.Label) 写出同一个元数据，初值就是那个 null（字段类型沿用迁移时的 cc.Label）。
+    @property(cc.Label) loadingProgess: cc.Label = null as unknown as cc.Label;
 
-        // Creator 的属性简写：值就是类型构造器本身，运行时仍是 `cc.Label`；
-        // 这里用一次断言把 `this.loadingProgess` 收窄成 Label 实例类型。
-        loadingProgess:cc.Label as unknown as cc.Label,
-    },
-
-    // 以下两个字段老代码是运行时动态挂到实例上的，**不在 properties 里**。
-    // 这里写上 `undefined` 只是为了在类型层面说明它们的存在：prototype 上的值仍是 undefined，
-    // 运行时状态与「字段不存在」完全一致，没有补任何初始值。
-    _mainScene: undefined as string | undefined,
-    _splash: undefined as cc.Node | undefined,
+    // 以下字段老代码是运行时动态挂到实例上的，**不是 Creator 的序列化属性**。
+    // 这里用 declare 只声明类型、不产生运行时代码：与「字段不存在」完全一致，没有补任何初始值。
+    declare _mainScene: string | undefined;
+    declare _splash: cc.Node | undefined;
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         initMgr();
         cc.vv.utils.setFitSreenMode();
         console.log('haha');
@@ -107,13 +101,13 @@ cc.Class({
         this.showSplash(function (this: AppStartSelf) {
             this.getServerInfo();
         }.bind(this));
-    },
+    }
 
-    onBtnDownloadClicked:function(){
+    onBtnDownloadClicked(){
         cc.sys.openURL(cc.vv.SI.appweb);
-    },
+    }
 
-    showSplash:function(callback: () => void){
+    showSplash(callback: () => void){
         var self = this;
         var SHOW_TIME = 3000;
         var FADE_TIME = 500;
@@ -149,9 +143,9 @@ cc.Class({
             this._splash!.active = false;
             callback();
         }
-    },
+    }
 
-    getServerInfo:function(){
+    getServerInfo(){
         var self = this;
         var onGetVersion = function (this: void, ret: HttpResp) {
             // 网络边界：/get_serverinfo 的返回体就是 ServerInfo。HTTP 回调统一按 HttpResp 收口，
@@ -207,10 +201,13 @@ cc.Class({
             }
         };
         fn();
-    },
-    log:function(content: string){
-        this.label!.string += content + '\n';
-    },
-});
+    }
 
-export { };
+    log(content: string){
+        this.label!.string += content + '\n';
+    }
+}
+
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = AppStart;

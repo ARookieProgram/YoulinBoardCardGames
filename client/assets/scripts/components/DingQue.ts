@@ -1,39 +1,39 @@
 // 定缺：定缺选择界面、推荐花色动画与各座位的定缺标记。
 //
-// 本文件是 ES5 风格（cc.Class / var / function）的 TypeScript 迁移产物：
+// 本文件用 ES6 class + @ccclass/@property 装饰器（Creator 2.4 的官方写法）：
 // 运行时行为与迁移前的 DingQue.js 完全一致，只补了类型标注、可空属性的 `!` 断言
 // 与本地事件载荷的类型断言。
-cc.Class({
-    extends: cc.Component,
 
-    properties: {
-        queYiMen:null as cc.Node | null,
-        // 三个提示文本与三块选中遮罩、四个座位的定缺标记，运行期在 initView 里 push 进来。
-        tips:[] as cc.Label[],
-        selected:[] as cc.Node[],
-        dingques:[] as cc.Node[],
-        // foo: {
-        //    default: null,
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-    },
+const { ccclass, property } = cc._decorator;
+
+@ccclass
+export default class DingQue extends cc.Component {
+    @property queYiMen: cc.Node | null = null;
+    // 三个提示文本与三块选中遮罩、四个座位的定缺标记，运行期在 initView 里 push 进来。
+    @property tips: cc.Label[] = [];
+    @property selected: cc.Node[] = [];
+    @property dingques: cc.Node[] = [];
+    // foo: {
+    //    default: null,
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
 
     // use this for initialization
-    start: function () {
+    start() {
         if(cc.vv == null){
             return;
         }
         this.initView();
         this.initDingQue();
         this.initEventHandlers();
-    },
-    
-    initView:function(){
+    }
+
+    initView(){
         var gameChild = this.node.getChildByName("game");
         this.queYiMen = gameChild.getChildByName("dingque");
         this.queYiMen!.active = cc.vv.gameNetMgr.isDingQueing;
@@ -56,9 +56,9 @@ cc.Class({
         if(cc.vv.gameNetMgr.gamestate == "dingque"){
             this.showDingQueChoice();
         }
-    },
-    
-    initEventHandlers:function(){
+    }
+
+    initEventHandlers(){
         var self = this;
         this.node.on('game_dingque',function(data){
             self.showDingQueChoice();
@@ -78,9 +78,9 @@ cc.Class({
             cc.vv.gameNetMgr.isDingQueing = false;
             self.initDingQue();
         });
-    },
-    
-    showDingQueChoice:function(){
+    }
+
+    showDingQueChoice(){
         this.queYiMen!.active = true;
         var sd = cc.vv.gameNetMgr.getSelfData();
         var typeCounts = [0,0,0];
@@ -122,9 +122,9 @@ cc.Class({
                 n.node.active = true;
             }
         }
-    },
-    
-    initDingQue:function(){
+    }
+
+    initDingQue(){
         var arr = ["tong","tiao","wan"];
         // 老代码不判空：seats 为 null 时运行期行为与迁移前一致。
         var data = cc.vv.gameNetMgr.seats!;
@@ -144,9 +144,9 @@ cc.Class({
                 this.dingques[localIndex].getChildByName(que).active = true;    
             }
         }
-    },
-    
-    reset:function(){
+    }
+
+    reset(){
         this.setInteractable(true);
         
         this.selected.push(this.queYiMen!.getChildByName("tong_selected"));
@@ -161,9 +161,9 @@ cc.Class({
                 this.dingques[i].children[j].active = false;    
             }
         }
-    },
-    
-    onQueYiMenClicked:function(event: cc.Event){
+    }
+
+    onQueYiMenClicked(event: cc.Event){
         var type = 0;
         if(event.target.name == "tong"){
             type = 0;
@@ -183,17 +183,19 @@ cc.Class({
         cc.vv.net.send("dingque",type);
         
         //this.setInteractable(false);
-    },
-    
-    setInteractable:function(value: boolean){
+    }
+
+    setInteractable(value: boolean){
         this.queYiMen!.getChildByName("tong").getComponent(cc.Button).interactable = value;
         this.queYiMen!.getChildByName("tiao").getComponent(cc.Button).interactable = value;
         this.queYiMen!.getChildByName("wan").getComponent(cc.Button).interactable = value;        
     }
-
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-});
-export { };
+}
+
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = DingQue;

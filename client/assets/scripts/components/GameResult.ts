@@ -6,25 +6,24 @@ interface ResultSeat {
     setID(id: number): void;
 }
 
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        // foo: {
-        //    default: null,
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        _gameresult:null as cc.Node | null,
-        _seats:[] as ResultSeat[],
-    },
+@ccclass
+export default class GameResult extends cc.Component {
+    // foo: {
+    //    default: null,
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property _gameresult: cc.Node | null = null;
+    @property _seats: ResultSeat[] = [];
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         if(cc.vv == null){
             return;
         }
@@ -52,9 +51,9 @@ cc.Class({
         //初始化网络事件监听器
         var self = this;
         this.node.on('game_end',function(data: EndInfo[]){self.onGameEnd(data);});
-    },
-    
-    showResult:function(seat: ResultSeat,info: EndInfo,isZuiJiaPaoShou: boolean){
+    }
+
+    showResult(seat: ResultSeat,info: EndInfo,isZuiJiaPaoShou: boolean){
         seat.node.getChildByName("zuijiapaoshou").active = isZuiJiaPaoShou;
         
         // 老代码直接把 number 赋给 cc.Label.string（运行期由 Label 自己处理），
@@ -65,9 +64,9 @@ cc.Class({
         seat.node.getChildByName("angangcishu").getComponent(cc.Label).string = info.numangang as unknown as string;
         seat.node.getChildByName("minggangcishu").getComponent(cc.Label).string = info.numminggang as unknown as string;
         seat.node.getChildByName("chajiaocishu").getComponent(cc.Label).string = info.numchadajiao as unknown as string;
-    },
-    
-    onGameEnd:function(endinfo: EndInfo[]){
+    }
+
+    onGameEnd(endinfo: EndInfo[]){
         // `seats` 老代码没判空（能收到 game_end 时座位一定在），沿用非空断言。
         var seats = cc.vv.gameNetMgr.seats!;
         var maxscore = -1;
@@ -96,15 +95,18 @@ cc.Class({
             var isZuiJiaPaoShou = dianpaogaoshou == i;
             this.showResult(this._seats[i],endinfo[i],isZuiJiaPaoShou);
         }
-    },
-    
-    onBtnCloseClicked:function(){
+    }
+
+    onBtnCloseClicked(){
         cc.vv.wc.show('正在返回游戏大厅');
         cc.director.loadScene("hall");
-    },
-    
-    onBtnShareClicked:function(){
+    }
+
+    onBtnShareClicked(){
         cc.vv.anysdkMgr.shareResult();
     }
-});
-export { };
+}
+
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = GameResult;

@@ -1,6 +1,6 @@
 // 结算面板：单局结束（game_over）与总结算的展示逻辑。
 //
-// 本文件是 ES5 风格（cc.Class / var / function）的 TypeScript 迁移产物：
+// 本文件用 ES6 class + @ccclass/@property 装饰器（Creator 2.4 的官方写法）：
 // 运行时行为与迁移前的 GameOver.js 完全一致，只补了类型标注与本地事件载荷的断言。
 // `game_over` 是 GameNetMgr 用 `dispatchEvent` 派发的本地事件，载荷就是 results 数组。
 
@@ -41,30 +41,29 @@ interface GameOverResultSeat extends GameResultSeat {
     huinfo?: GameOverHuInfo[];
 }
 
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        // foo: {
-        //    default: null,
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        _gameover:null as cc.Node | null,
-        _gameresult:null as cc.Node | null,
-        _seats:[] as GameOverSeatView[],
-        _isGameEnd:false as boolean,
-        _pingju:null as cc.Node | null,
-        _win:null as cc.Node | null,
-        _lose:null as cc.Node | null,
-    },
+@ccclass
+export default class GameOver extends cc.Component {
+    // foo: {
+    //    default: null,
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property _gameover: cc.Node | null = null;
+    @property _gameresult: cc.Node | null = null;
+    @property _seats: GameOverSeatView[] = [];
+    @property _isGameEnd: boolean = false;
+    @property _pingju: cc.Node | null = null;
+    @property _win: cc.Node | null = null;
+    @property _lose: cc.Node | null = null;
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         if(cc.vv == null){
             return;
         }
@@ -117,8 +116,8 @@ cc.Class({
         this.node.on('game_over',function(data){self.onGameOver(data as GameOverResultSeat[]);});
         
         this.node.on('game_end',function(data){self._isGameEnd = true;});
-    },
-    
+    }
+
     onGameOver(data: GameOverResultSeat[]){
         if(cc.vv.gameNetMgr.conf!.type == "xzdd"){
             this.onGameOver_XZDD(data);
@@ -126,8 +125,8 @@ cc.Class({
         else{
             this.onGameOver_XLCH(data);
         }
-    },
-    
+    }
+
     onGameOver_XZDD(data: GameOverResultSeat[]){
         console.log(data);
         if(data.length == 0){
@@ -360,8 +359,9 @@ cc.Class({
                 }    
             }
         }
-    },
-    onGameOver_XLCH:function(data: GameOverResultSeat[]){
+    }
+
+    onGameOver_XLCH(data: GameOverResultSeat[]){
         console.log(data);
         if(data.length == 0){
             this._gameresult!.active = true;
@@ -614,9 +614,9 @@ cc.Class({
                 }    
             }
         }
-    },
-    
-    initPengAndGangs:function(seatView: GameOverSeatView,index: number,mjid: Pai,flag: string){
+    }
+
+    initPengAndGangs(seatView: GameOverSeatView,index: number,mjid: Pai,flag: string){
         var pgroot = null as cc.Node | null;
         if(seatView._pengandgang.length <= index){
             // cc.instantiate 在引擎声明里返回 any，这里按运行期实际取到的 cc.Node 断言。
@@ -652,9 +652,9 @@ cc.Class({
             }
         }
         pgroot.x = index * 55 * 3 + index * 10;
-    },
-    
-    onBtnReadyClicked:function(){
+    }
+
+    onBtnReadyClicked(){
         console.log("onBtnReadyClicked");
         if(this._isGameEnd){
             this._gameresult!.active = true;
@@ -663,16 +663,17 @@ cc.Class({
             cc.vv.net.send('ready');   
         }
         this._gameover!.active = false;
-    },
-    
-    onBtnShareClicked:function(){
-        console.log("onBtnShareClicked");
     }
 
+    onBtnShareClicked(){
+        console.log("onBtnShareClicked");
+    }
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-});
+}
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = GameOver;

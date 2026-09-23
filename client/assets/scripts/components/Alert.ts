@@ -1,27 +1,26 @@
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        // foo: {
-        //    default: null,      // The default value will be used only when the component attaching
-        //                           to a node for the first time
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        _alert:null as cc.Node | null,
-        _btnOK:null as cc.Node | null,
-        _btnCancel:null as cc.Node | null,
-        _title:null as cc.Label | null,
-        _content:null as cc.Label | null,
-        _onok:null as (() => void) | null | undefined,
-    },
+@ccclass
+export default class Alert extends cc.Component {
+    // foo: {
+    //    default: null,      // The default value will be used only when the component attaching
+    //                           to a node for the first time
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property _alert: cc.Node | null = null;
+    @property _btnOK: cc.Node | null = null;
+    @property _btnCancel: cc.Node | null = null;
+    @property _title: cc.Label | null = null;
+    @property _content: cc.Label | null = null;
+    @property _onok: (() => void) | null | undefined = null;
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         if(cc.vv == null){
             return;
         }
@@ -38,9 +37,9 @@ cc.Class({
         
         this._alert!.active = false;
         cc.vv.alert = this;
-    },
-    
-    onBtnClicked:function(event: cc.Event){
+    }
+
+    onBtnClicked(event: cc.Event){
         if(event.target.name == "btn_ok"){
             if(this._onok){
                 this._onok();
@@ -48,10 +47,11 @@ cc.Class({
         }
         this._alert!.active = false;
         this._onok = null;
-    },
+    }
+
     
     // 后两个形参老代码里都不是必传的（调用方分别传 2 / 3 / 4 个），标成可选只是类型说明。
-    show:function(title: string,content: string,onok?: (() => void) | null,needcancel?: boolean){
+    show(title: string,content: string,onok?: (() => void) | null,needcancel?: boolean){
         this._alert!.active = true;
         this._onok = onok;
         this._title!.string = title;
@@ -65,17 +65,19 @@ cc.Class({
             this._btnCancel!.active = false;
             this._btnOK!.x = 0;
         }
-    },
-    
-    onDestory:function(){
+    }
+
+    onDestory(){
         if(cc.vv){
             cc.vv.alert = null;    
         }
     }
-
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-});
-export { };
+}
+
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = Alert;

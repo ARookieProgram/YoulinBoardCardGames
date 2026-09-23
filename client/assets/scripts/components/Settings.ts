@@ -1,25 +1,24 @@
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        // foo: {
-        //    default: null,      // The default value will be used only when the component attaching
-        //                           to a node for the first time
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        _btnYXOpen:null as cc.Node | null,
-        _btnYXClose:null as cc.Node | null,
-        _btnYYOpen:null as cc.Node | null,
-        _btnYYClose:null as cc.Node | null,
-    },
+@ccclass
+export default class Settings extends cc.Component {
+    // foo: {
+    //    default: null,      // The default value will be used only when the component attaching
+    //                           to a node for the first time
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property _btnYXOpen: cc.Node | null = null;
+    @property _btnYXClose: cc.Node | null = null;
+    @property _btnYYOpen: cc.Node | null = null;
+    @property _btnYYClose: cc.Node | null = null;
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         if(cc.vv == null){
             return;
         }
@@ -47,9 +46,9 @@ cc.Class({
         cc.vv.utils.addSlideEvent(slider,this.node,"Settings","onSlided");
         
         this.refreshVolume();
-    },
-    
-    onSlided:function(slider: cc.Slider){
+    }
+
+    onSlided(slider: cc.Slider){
         if(slider.node.parent.name == "yinxiao"){
             cc.vv.audioMgr.setSFXVolume(slider.progress);
         }
@@ -57,13 +56,13 @@ cc.Class({
             cc.vv.audioMgr.setBGMVolume(slider.progress);
         }
         this.refreshVolume();
-    },
-    
-    initButtonHandler:function(btn: cc.Node){
+    }
+
+    initButtonHandler(btn: cc.Node){
         cc.vv.utils.addClickEvent(btn,this.node,"Settings","onBtnClicked");    
-    },
-    
-    refreshVolume:function(){
+    }
+
+    refreshVolume(){
         
         this._btnYXClose!.active = cc.vv.audioMgr.sfxVolume > 0;
         this._btnYXOpen!.active = !this._btnYXClose!.active;
@@ -85,9 +84,9 @@ cc.Class({
         
         progress.getChildByName("progress").width = width;
         //yy.getChildByName("btn_progress").x = progress.x + width;
-    },
-    
-    onBtnClicked:function(event: cc.Event){
+    }
+
+    onBtnClicked(event: cc.Event){
         if(event.target.name == "btn_close"){
             this.node.active = false;
         }
@@ -113,11 +112,12 @@ cc.Class({
             this.refreshVolume();
         }
     }
-
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-});
+}
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = Settings;

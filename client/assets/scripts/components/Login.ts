@@ -28,25 +28,25 @@ String.prototype.format = function(this: string, args: Record<string, string> | 
     } 
 };
  
-cc.Class({
-    extends: cc.Component,
 
-    properties: {
-        // foo: {
-        //    default: null,
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        _mima:null as string[] | null,
-        _mimaIndex:0,
-    },
+const { ccclass, property } = cc._decorator;
+
+@ccclass
+export default class Login extends cc.Component {
+    // foo: {
+    //    default: null,
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property _mima: string[] | null = null;
+    @property _mimaIndex: number = 0;
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         cc.vv.utils.setFitSreenMode();
         cc.vv.http.url = cc.vv.http.master_url;
         cc.vv.net.addHandler('push_need_create_role',function(){
@@ -66,9 +66,9 @@ cc.Class({
             cc.find("Canvas/btn_yk").active = false;
             cc.find("Canvas/btn_weixin").active = true;
         }
-    },
-    
-    start:function(){
+    }
+
+    start(){
         var account: string | null =  cc.sys.localStorage.getItem("wx_account");
         var sign: string | null = cc.sys.localStorage.getItem("wx_sign");
         if(account != null && sign != null && account != '' && sign != ''){
@@ -79,18 +79,18 @@ cc.Class({
             }
             cc.vv.userMgr.onAuth(ret);
         }   
-    },
-    
-    onBtnQuickStartClicked:function(){
+    }
+
+    onBtnQuickStartClicked(){
         cc.vv.userMgr.guestAuth();
-    },
-    
-    onBtnWeichatClicked:function(){
+    }
+
+    onBtnWeichatClicked(){
         var self = this;
         cc.vv.anysdkMgr.login();
-    },
-    
-    onBtnMIMAClicked:function(event: cc.Event){
+    }
+
+    onBtnMIMAClicked(event: cc.Event){
         if(this._mima![this._mimaIndex] == event.target.name){
             this._mimaIndex++;
             if(this._mimaIndex == this._mima!.length){
@@ -102,11 +102,12 @@ cc.Class({
             this._mimaIndex = 0;
         }
     }
-
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-});
+}
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = Login;

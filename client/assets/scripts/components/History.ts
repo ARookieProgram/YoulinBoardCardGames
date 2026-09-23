@@ -1,6 +1,6 @@
 // 战绩列表与房间详情。
 //
-// 本文件是 ES5 风格（cc.Class / var / function）的 TypeScript 迁移产物：
+// 本文件用 ES6 class + @ccclass/@property 装饰器（Creator 2.4 的官方写法）：
 // 运行时行为与迁移前的 History.js 完全一致，只补了类型标注与跨网络边界的断言。
 //
 // `get_detail_of_game` 的返回体里 `base_info` / `action_records` 在服务端是 JSON 字符串，
@@ -10,34 +10,30 @@ interface RawReplayDetail {
     action_records: string | PaiList;
 }
 
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        HistoryItemPrefab:{
-            default:null as cc.Prefab | null,
-            type:cc.Prefab,
-        },
-        // foo: {
-        //    default: null,
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        _history:null as cc.Node | null,
-        _viewlist:null as cc.Node | null,
-        _content:null as cc.Node | null,
-        _viewitemTemp:null as cc.Node | null,
-        _historyData:null as HistoryRoomInfo[] | null,
-        _curRoomInfo:null as HistoryRoomInfo | null,
-        _emptyTip:null as cc.Node | null,
-    },
+@ccclass
+export default class History extends cc.Component {
+    @property({type: cc.Prefab}) HistoryItemPrefab: cc.Prefab | null = null as cc.Prefab | null;
+    // foo: {
+    //    default: null,
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property _history: cc.Node | null = null;
+    @property _viewlist: cc.Node | null = null;
+    @property _content: cc.Node | null = null;
+    @property _viewitemTemp: cc.Node | null = null;
+    @property _historyData: HistoryRoomInfo[] | null = null;
+    @property _curRoomInfo: HistoryRoomInfo | null = null;
+    @property _emptyTip: cc.Node | null = null;
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         this._history = this.node.getChildByName("history");
         this._history.active = false;
         
@@ -55,9 +51,9 @@ cc.Class({
         
         var node = cc.find("Canvas/history/btn_back");  
         this.addClickEvent(node,this.node,"History","onBtnBackClicked");
-    },
-    
-    addClickEvent:function(node: cc.Node,target: cc.Node,component: string,handler: string){
+    }
+
+    addClickEvent(node: cc.Node,target: cc.Node,component: string,handler: string){
         var eventHandler = new cc.Component.EventHandler();
         eventHandler.target = target;
         eventHandler.component = component;
@@ -65,9 +61,9 @@ cc.Class({
 
         var clickEvents = node.getComponent(cc.Button).clickEvents;
         clickEvents.push(eventHandler);
-    },
-    
-    onBtnBackClicked:function(){
+    }
+
+    onBtnBackClicked(){
         if(this._curRoomInfo == null){
             this._historyData = null;
             this._history!.active = false;            
@@ -75,9 +71,9 @@ cc.Class({
         else{
             this.initRoomHistoryList(this._historyData!);   
         }
-    },
-    
-    onBtnHistoryClicked:function(){
+    }
+
+    onBtnHistoryClicked(){
         this._history!.active = true;
         var self = this;
         cc.vv.userMgr.getHistoryList(function(data){
@@ -96,9 +92,9 @@ cc.Class({
             }
             self.initRoomHistoryList(history);
         });
-    },
-    
-    dateFormat:function(time: number){
+    }
+
+    dateFormat(time: number){
         var date = new Date(time);
         var datetime = "{0}-{1}-{2} {3}:{4}:{5}";
         var year = date.getFullYear();
@@ -115,9 +111,9 @@ cc.Class({
         s = s >= 10? s : ("0"+s);
         datetime = datetime.format(year,month,day,h,m,s);
         return datetime;
-    },
-    
-    initRoomHistoryList:function(data: HistoryRoomInfo[]){
+    }
+
+    initRoomHistoryList(data: HistoryRoomInfo[]){
         for(var i = 0; i < data.length; ++i){
             var node = this.getViewItem(i);
             node.idx = i;
@@ -141,9 +137,9 @@ cc.Class({
         this._emptyTip!.active = data.length == 0;
         this.shrinkContent(data.length);
         this._curRoomInfo = null;
-    },
-    
-    initGameHistoryList:function(roomInfo: HistoryRoomInfo,data: GameRecord[]){
+    }
+
+    initGameHistoryList(roomInfo: HistoryRoomInfo,data: GameRecord[]){
         // 老代码的比较函数返回 boolean（运行时被当作 0/1 用），行为原样保留，只做类型收口。
         data.sort(function(a: GameRecord,b: GameRecord){
            return a.create_time < b.create_time; 
@@ -172,9 +168,9 @@ cc.Class({
         }
         this.shrinkContent(data.length);
         this._curRoomInfo = roomInfo;
-    },
-    
-    getViewItem:function(index: number): cc.Node{
+    }
+
+    getViewItem(index: number): cc.Node{
         var content = this._content!;
         if(content.childrenCount > index){
             return content.children[index];
@@ -182,15 +178,16 @@ cc.Class({
         var node = cc.instantiate(this._viewitemTemp);
         content.addChild(node);
         return node;
-    },
-    shrinkContent:function(num: number){
+    }
+
+    shrinkContent(num: number){
         while(this._content!.childrenCount > num){
             var lastOne = this._content!.children[this._content!.childrenCount -1];
             this._content!.removeChild(lastOne,true);
         }
-    },
-    
-    getGameListOfRoom:function(idx: number){
+    }
+
+    getGameListOfRoom(idx: number){
         var self = this;
         var roomInfo = this._historyData![idx];        
         cc.vv.userMgr.getGamesOfRoom(roomInfo.uuid,function(data){
@@ -200,9 +197,9 @@ cc.Class({
                 self.initGameHistoryList(roomInfo,records);
             }
         });
-    },
-    
-    getDetailOfGame:function(idx: number){
+    }
+
+    getDetailOfGame(idx: number){
         var self = this;
         var roomUUID = this._curRoomInfo!.uuid;
         cc.vv.userMgr.getDetailOfGame(roomUUID,idx,function(data){
@@ -214,9 +211,9 @@ cc.Class({
             cc.vv.replayMgr.init(detail as ReplayDetail);
             cc.director.loadScene("mjgame"); 
         });
-    },
-    
-    onViewItemClicked:function(event: cc.Event){
+    }
+
+    onViewItemClicked(event: cc.Event){
         var idx = event.target.idx;
         console.log(idx);
         if(this._curRoomInfo == null){
@@ -225,9 +222,9 @@ cc.Class({
         else{
             this.getDetailOfGame(idx);      
         }
-    },
-    
-    onBtnOpClicked:function(event: cc.Event){
+    }
+
+    onBtnOpClicked(event: cc.Event){
         var idx = event.target.parent.idx;
         console.log(idx);
         if(this._curRoomInfo == null){
@@ -236,11 +233,13 @@ cc.Class({
         else{
             this.getDetailOfGame(idx);      
         }
-    },
-
+    }
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-});
-export { };
+}
+
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = History;

@@ -1,20 +1,19 @@
-cc.Class({
-    extends: cc.Component,
+const { ccclass } = cc._decorator;
 
-    properties: {
-        // foo: {
-        //    default: null,      // The default value will be used only when the component attaching
-        //                           to a node for the first time
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-    },
+@ccclass
+export default class Utils extends cc.Component {
+    // foo: {
+    //    default: null,      // The default value will be used only when the component attaching
+    //                           to a node for the first time
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
 
-    addClickEvent:function(node: cc.Node,target: cc.Component,component: string,handler: string){
+    addClickEvent(node: cc.Node,target: cc.Component,component: string,handler: string){
         console.log(component + ":" + handler);
         var eventHandler = new cc.Component.EventHandler();
         // creator.d.ts 把 EventHandler.target 声明成 cc.Node，而本项目老代码一律传组件进来；
@@ -26,9 +25,9 @@ cc.Class({
         // creator.d.ts 的 getComponent 只声明了返回 cc.Component 的重载，这里断言成实际取到的组件类型。
         var clickEvents = (node.getComponent(cc.Button) as cc.Button).clickEvents;
         clickEvents.push(eventHandler);
-    },
-    
-    addSlideEvent:function(node: cc.Node,target: cc.Component,component: string,handler: string){
+    }
+
+    addSlideEvent(node: cc.Node,target: cc.Component,component: string,handler: string){
         var eventHandler = new cc.Component.EventHandler();
         // 同上：EventHandler.target 的声明与老代码的用法不一致，断言只作用于类型。
         eventHandler.target = target as unknown as cc.Node;
@@ -38,9 +37,9 @@ cc.Class({
         // getComponent 的返回值在 creator.d.ts 里是 cc.Component，这里断言成 cc.Slider。
         var slideEvents = (node.getComponent(cc.Slider) as cc.Slider).slideEvents;
         slideEvents.push(eventHandler);
-    },
+    }
 
-    addEscEvent:function(node: cc.Node){
+    addEscEvent(node: cc.Node){
         cc.eventManager.addListener({
             event: cc.EventListener.KEYBOARD,
             onKeyPressed:  function(keyCode: number, event: cc.Event){
@@ -55,9 +54,9 @@ cc.Class({
                 }
             }
         }, node);
-    },
+    }
 
-    setFitSreenMode:function(){
+    setFitSreenMode(){
         var node = cc.find('Canvas');
         var size = cc.view.getFrameSize();
         var w = size.width;
@@ -78,16 +77,17 @@ cc.Class({
             cvs.fitWidth = true;
         }
     }
-
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-});
+}
 
 /** `AlertBox.show` 的完整签名：`Alert.js` 的 `show(title, content, onok, needcancel)` 一共 4 个形参。 */
 interface AlertBoxWithCancel {
     show(title: string, msg: string, callback?: () => void, needcancel?: boolean): void;
 }
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = Utils;

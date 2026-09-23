@@ -20,11 +20,13 @@
 不假装能验证不能验证的东西（见 §5）。
 
 **技术栈现状**：服务端是 Node.js + **TypeScript（`strict: true`）** + Express + Socket.IO +
-MySQL（`mysql2`），由 `tsc` 编译到 `server/dist/` 后运行；客户端仍是 Cocos Creator 2.4.15 的
-ES5 JavaScript（`var` / `function` / 回调的客户端风格约定不变）。服务端这次是**行为不变的纯类型迁移**，
+MySQL（`mysql2`），由 `tsc` 编译到 `server/dist/` 后运行；客户端是 Cocos Creator 2.4.15 的
+**TypeScript**（组件用 ES6 `class` + `cc._decorator` 的 `@ccclass` / `@property`，
+由 Creator 自带的 Babel 管线编译）。两边都经历过**行为不变的迁移**：
+服务端是 ES5 JS → TypeScript，客户端先 `.js` → `.ts`、再 `cc.Class` → `class`。
 所以源码里同样保留 `var` / `function` / 回调，只有模块语法换成了 `import` / `export`
 （由 `tsc --module CommonJS` 编译回 `require`）——为什么这么定、逐条规矩是什么，见
-`repo:docs/ai-native/typescript-migration.md`。
+`repo:docs/ai-native/typescript-migration.md` 与 `repo:docs/ai-native/client-typescript-migration.md`。
 
 ---
 
@@ -54,7 +56,7 @@ ES5 JavaScript（`var` / `function` / 回调的客户端风格约定不变）。
 | 协议全景 | `repo:docs/ai-native/protocol.md` | 39 个推送事件 + 20 个客户端事件 + HTTP 接口索引（§1 表格与源码的一致性由门禁强制） |
 | 玩法规格 | `repo:docs/ai-native/game-rules.md` | 牌编码、听牌算法、**七对未实现**、动作常量与回放兼容红线、房间配置两层结构 |
 | TS 迁移规范（服务端） | `repo:docs/ai-native/typescript-migration.md` | 服务端为什么编译到 `dist/`、逐条转换规则、共享类型清单、刻意的严格性取舍 |
-| TS 迁移规范（客户端） | `repo:docs/ai-native/client-typescript-migration.md` | 客户端为什么没有构建步骤、`cc.Class` 的 `this` 从哪来、`cc.vv` / 域模型声明在哪、改名时 `.meta` 的 uuid 为什么不能丢 |
+| TS 迁移规范（客户端） | `repo:docs/ai-native/client-typescript-migration.md` | 客户端为什么没有构建步骤、Creator 的 Babel 管线能吃什么语法、`cc.Class` → `@ccclass`/`@property` 的逐项对应、`cc.vv` / 域模型声明在哪、改名时 `.meta` 的 uuid 为什么不能丢 |
 | 客户端结构 | `repo:docs/ai-native/client-map.md` | 目录边界、脚本分层、组件职责、场景图 |
 
 ### 技能清单
@@ -83,7 +85,7 @@ npm run verify:list
 | 检查 | 断言 | 实现 |
 | --- | --- | --- |
 | `syntax` | 80 个一方脚本（client 47 / server 33）都能被解析：`.ts` 用 `module.stripTypeScriptTypes` 擦类型解析（只允许可擦除语法），`.js` 用 `vm.Script` **编译但不执行**；另外校验 client 的脚本 `.meta` 与场景组件绑定是否还成立 | `repo:tools/lib/syntax.mjs`、`repo:tools/lib/assets.mjs` |
-| `types` | 两半：① 零依赖的 **no-any 审计**扫所有一方 `.ts`（`: any` / `as any` / `<any>` / `@ts-ignore` / `@ts-expect-error` 一律失败）；② `tsc --noEmit` 严格类型检查（`strict: true`）。缺 `server/node_modules/typescript` 时 ② 报 skipped，① 仍执行 | `repo:tools/verify.mjs` |
+| `types` | 两半：① 零依赖的 **no-any 审计**扫所有一方 `.ts`（`: any` / `as any` / `<any>` / `@ts-ignore` / `@ts-expect-error` 一律失败），并在 `client/` 里查残留的 `cc.Class(` 与「有 `export default class X` 就必须有 `module.exports = X;`」；② `tsc --noEmit` 严格类型检查（`strict: true`）。缺 `server/node_modules/typescript` 时 ② 报 skipped，① 仍执行 | `repo:tools/verify.mjs` |
 | `harness` | 3 份 `AGENTS.md` + 5 个技能存在、frontmatter 合法、`repo:` 引用存在 | `repo:tools/lib/harness.mjs` |
 | `protocol` | 三向对齐：服务端推送 ↔ 客户端处理器 ↔ `protocol.md` §1 表格（39 推送 / 44 处理器） | `repo:tools/lib/protocol.mjs` |
 | `smoke` | 听牌/胡牌判定的 5 类牌型 + 花色边界 + MD5 + Base64（含中文昵称）+ `String.prototype.format` + `http.queryString`/`queryInt`，共 19 条断言 | `repo:tools/lib/smoke.mjs` |

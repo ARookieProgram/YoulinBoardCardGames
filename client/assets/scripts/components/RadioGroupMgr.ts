@@ -10,28 +10,27 @@ interface RadioGroupMap {
     [groupId: number]: RadioButtonLike[] | undefined;
 }
 
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        // foo: {
-        //    default: null,
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        _groups:null as RadioGroupMap | null
-    },
+@ccclass
+export default class RadioGroupMgr extends cc.Component {
+    // foo: {
+    //    default: null,
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property _groups: RadioGroupMap | null = null;
 
     // use this for initialization
-    init: function () {
+    init() {
         this._groups = {};
-    },
-    
-    add:function(radioButton: RadioButtonLike){
+    }
+
+    add(radioButton: RadioButtonLike){
         var groupId = radioButton.groupId; 
         var buttons = this._groups![groupId];
         if(buttons == null){
@@ -39,9 +38,9 @@ cc.Class({
             this._groups![groupId] = buttons; 
         }
         buttons.push(radioButton);
-    },
-    
-    del:function(radioButton: RadioButtonLike){
+    }
+
+    del(radioButton: RadioButtonLike){
         var groupId = radioButton.groupId;
         var buttons = this._groups![groupId];
         if(buttons == null){
@@ -54,9 +53,9 @@ cc.Class({
         if(buttons.length == 0){
             delete this._groups![groupId]   
         }
-    },
-    
-    check:function(radioButton: RadioButtonLike){
+    }
+
+    check(radioButton: RadioButtonLike){
         var groupId = radioButton.groupId;
         var buttons = this._groups![groupId];
         if(buttons == null){
@@ -71,10 +70,12 @@ cc.Class({
             }
         }        
     }
-
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-});
-export { };
+}
+
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = RadioGroupMgr;

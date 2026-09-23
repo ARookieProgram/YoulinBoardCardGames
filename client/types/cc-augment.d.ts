@@ -183,6 +183,61 @@ declare namespace cc {
 }
 
 // ---------------------------------------------------------------------------
+// cc._decorator：creator.d.ts 完全没有声明（Creator 2.4 的 ES6 class 装饰器 API）
+// ---------------------------------------------------------------------------
+
+declare namespace cc {
+    /** `@property` 接受的属性描述符；这里只列本项目实际用到的成员。 */
+    interface PropertyOptions {
+        /** 属性的类型构造器（可以是 `[cc.Label]` 这种数组形式）。 */
+        type?: unknown;
+        /** 初值；本项目一律用字段初始化器写初值，所以描述符里不带它。 */
+        default?: unknown;
+        visible?: boolean | (() => boolean);
+        displayName?: string;
+        tooltip?: string;
+        multiline?: boolean;
+        readonly?: boolean;
+        serializable?: boolean;
+        editorOnly?: boolean;
+        override?: boolean;
+        animatable?: boolean;
+        formerlySerializedAs?: string;
+        min?: number;
+        max?: number;
+        step?: number;
+        range?: number[];
+        slide?: boolean;
+    }
+
+    /**
+     * `cc._decorator`：Creator 2.4 用它声明 ES6 class 组件。
+     *
+     * 这套装饰器最终仍走引擎的 `cc.Class`（见引擎 `CCClassDecorator.js`：`@ccclass` 内部调用
+     * `cc.Class(proto)` 并带 `__ES6__: true`），所以类名、uuid 注册、`properties` 元数据都与老的
+     * `cc.Class({...})` 写法完全一致。
+     *
+     * 注意两点：
+     *  - `@ccclass` **不要传名字**：项目组件的类名由引擎取脚本名（`_RF.push` 的第 3 个参数），
+     *    传名字反而会触发引擎告警；
+     *  - 不带参数的 `@property foo = 0`（直接当装饰器用）与 `@property(cc.Label) foo = null`
+     *    （工厂写法）是两种调用形态，引擎两种都支持，这里用两个重载分别声明。
+     */
+    namespace _decorator {
+        function ccclass(target: Function): void;
+        function ccclass(name: string): (target: Function) => void;
+        function property(
+            target: object,
+            propertyKey: string | symbol,
+            descriptor?: PropertyDescriptor,
+        ): void;
+        function property(
+            options?: PropertyOptions | Function | [Function] | number | string | boolean | null,
+        ): (target: object, propertyKey: string | symbol) => void;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 全局对象
 // ---------------------------------------------------------------------------
 

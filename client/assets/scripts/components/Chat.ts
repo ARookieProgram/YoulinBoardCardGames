@@ -7,30 +7,29 @@ interface QuickChatItem extends QuickChatInfo {
     content: string;
 }
 
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        // foo: {
-        //    default: null,
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        _chatRoot:null as cc.Node | null,
-        _tabQuick:null as cc.Node | null,
-        _tabEmoji:null as cc.Node | null,
-        _iptChat:null as cc.EditBox | null,
-        
-        _quickChatInfo:null as { [key: string]: QuickChatItem } | null,
-        _btnChat:null as cc.Node | null,
-    },
+@ccclass
+export default class Chat extends cc.Component {
+    // foo: {
+    //    default: null,
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property _chatRoot: cc.Node | null = null;
+    @property _tabQuick: cc.Node | null = null;
+    @property _tabEmoji: cc.Node | null = null;
+    @property _iptChat: cc.EditBox | null = null;
+
+    @property _quickChatInfo: { [key: string]: QuickChatItem } | null = null;
+    @property _btnChat: cc.Node | null = null;
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         if(cc.vv == null){
             return;
         }
@@ -59,22 +58,22 @@ cc.Class({
         this._quickChatInfo["item6"] = {index:6,content:"大家好，很高兴见到各位！",sound:"fix_msg_7.mp3"};
         this._quickChatInfo["item7"] = {index:7,content:"各位，真是不好意思，我得离开一会儿。",sound:"fix_msg_8.mp3"};
         this._quickChatInfo["item8"] = {index:8,content:"不要吵了，专心玩游戏吧！",sound:"fix_msg_9.mp3"};
-    },
-    
+    }
+
     getQuickChatInfo(index: number){
         var key = "item" + index;
         return this._quickChatInfo![key];   
-    },
-    
-    onBtnChatClicked:function(){
+    }
+
+    onBtnChatClicked(){
         this._chatRoot!.active = true;
-    },
-    
-    onBgClicked:function(){
+    }
+
+    onBgClicked(){
         this._chatRoot!.active = false;
-    },
-    
-    onTabClicked:function(event: cc.Event){
+    }
+
+    onTabClicked(event: cc.Event){
         if(event.target.name == "tabQuick"){
             this._tabQuick!.active = true;
             this._tabEmoji!.active = false;
@@ -83,33 +82,34 @@ cc.Class({
             this._tabQuick!.active = false;
             this._tabEmoji!.active = true;
         }
-    },
-    
-    onQuickChatItemClicked:function(event: cc.Event){
+    }
+
+    onQuickChatItemClicked(event: cc.Event){
         this._chatRoot!.active = false;
         var info = this._quickChatInfo![event.target.name];
         cc.vv.net.send("quick_chat",info.index); 
-    },
-    
-    onEmojiItemClicked:function(event: cc.Event){
+    }
+
+    onEmojiItemClicked(event: cc.Event){
         console.log(event.target.name);
         this._chatRoot!.active = false;
         cc.vv.net.send("emoji",event.target.name);
-    },
-    
-    onBtnSendChatClicked:function(){
+    }
+
+    onBtnSendChatClicked(){
         this._chatRoot!.active = false;
         if(this._iptChat!.string == ""){
             return;
         }
         cc.vv.net.send("chat",this._iptChat!.string);
         this._iptChat!.string = "";
-    },
-
+    }
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-});
+}
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = Chat;

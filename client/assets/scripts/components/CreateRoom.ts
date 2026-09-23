@@ -1,30 +1,30 @@
 // 创建房间：玩法选择（换三张/血战到底）、底分/自摸/番数/局数等选项与建房请求。
 //
-// 本文件是 ES5 风格（cc.Class / var / function）的 TypeScript 迁移产物：
+// 本文件用 ES6 class + @ccclass/@property 装饰器（Creator 2.4 的官方写法）：
 // 运行时行为与迁移前的 CreateRoom.js 完全一致，只补了类型标注与动态组件查找处的断言。
-cc.Class({
-    extends: cc.Component,
 
-    properties: {
-        // foo: {
-        //    default: null,
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        _leixingxuanze: null as RadioButtonLike[] | null,
-        _gamelist: null as cc.Node | null,
-        _currentGame: null as cc.Node | null,
-    },
+const { ccclass, property } = cc._decorator;
 
-    // 运行时动态字段，不在 properties 里；这里只做类型说明，没有补初始值。
-    lastType: undefined as string | undefined,
+@ccclass
+export default class CreateRoom extends cc.Component {
+    // foo: {
+    //    default: null,
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property _leixingxuanze: RadioButtonLike[] | null = null;
+    @property _gamelist: cc.Node | null = null;
+    @property _currentGame: cc.Node | null = null;
+
+    // 运行时动态字段，不是 Creator 的序列化属性；declare 只做类型说明，没有补初始值。
+    declare lastType: string | undefined;
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
 
         this._gamelist = this.node.getChildByName('game_list');
 
@@ -38,13 +38,13 @@ cc.Class({
                 this._leixingxuanze.push(n);
             }
         }
-    },
+    }
 
-    onBtnBack: function () {
+    onBtnBack() {
         this.node.active = false;
-    },
+    }
 
-    onBtnOK: function () {
+    onBtnOK() {
         var usedTypes = ['xzdd', 'xlch'];
         var type = this.getType();
         if (usedTypes.indexOf(type) == -1) {
@@ -53,9 +53,9 @@ cc.Class({
 
         this.node.active = false;
         this.createRoom();
-    },
+    }
 
-    getType: function () {
+    getType() {
         var type = 0;
         for (var i = 0; i < this._leixingxuanze!.length; ++i) {
             if (this._leixingxuanze![i].checked) {
@@ -70,7 +70,7 @@ cc.Class({
             return 'xlch';
         }
         return 'xzdd';
-    },
+    }
 
     getSelectedOfRadioGroup(groupRoot: string) {
         console.log(groupRoot);
@@ -92,9 +92,9 @@ cc.Class({
             }
         }
         return selected;
-    },
+    }
 
-    createRoom: function () {
+    createRoom() {
         var self = this;
         var onCreate = function (ret: HttpResp) {
             if (ret.errcode !== 0) {
@@ -131,9 +131,9 @@ cc.Class({
         console.log(data);
         cc.vv.wc.show("正在创建房间");
         cc.vv.http.sendRequest("/create_private_room", data, onCreate);
-    },
+    }
 
-    constructSCMJConf: function (): Omit<RoomCreateConf, "type"> {
+    constructSCMJConf(): Omit<RoomCreateConf, "type"> {
 
         var wanfaxuanze = this._currentGame!.getChildByName('wanfaxuanze');
         // CheckBox 也是按类名取的组件，只能拿到 cc.Component；这里按运行期实际用到的 checked 断言。
@@ -163,11 +163,10 @@ cc.Class({
         // 而老代码这四项来自 CheckBox.checked（boolean），发给服务端的始终是布尔值；
         // 这里只做类型断言，运行期内容与迁移前一致。
         return conf as unknown as Omit<RoomCreateConf, "type">;
-    },
-
+    }
 
     // called every frame, uncomment this function to activate update callback
-    update: function (dt: number) {
+    update(dt: number = 0) {
 
         var type = this.getType();
         if (this.lastType != type) {
@@ -182,8 +181,8 @@ cc.Class({
             }
             this._currentGame = game;
         }
-    },
-});
+    }
+}
 
 /** `RadioButton`（尚未迁移成 .ts）在本组件里被读到的字段。 */
 interface RadioButtonLike {
@@ -195,4 +194,6 @@ interface CheckBoxLike {
     checked: boolean;
 }
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = CreateRoom;

@@ -1,24 +1,23 @@
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        // foo: {
-        //    default: null,      // The default value will be used only when the component attaching
-        //                           to a node for the first time
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        // 老代码里没有用到这个字段，也没有任何赋值，类型无从判断，按 unknown 声明。
-        _lblTip: null as unknown,
-        _lastPing: 0,
-    },
+@ccclass
+export default class ReConnect extends cc.Component {
+    // foo: {
+    //    default: null,      // The default value will be used only when the component attaching
+    //                           to a node for the first time
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    // 老代码里没有用到这个字段，也没有任何赋值，类型无从判断，按 unknown 声明。
+    @property _lblTip: unknown = null;
+    @property _lastPing: number = 0;
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         var self = this;
 
         var fnTestServerOn = function () {
@@ -55,9 +54,13 @@ cc.Class({
             self.node.on('disconnect', fn);
         });
         this.node.on('disconnect', fn);
-    },
+    }
+
     // called every frame, uncomment this function to activate update callback
-    update: function (dt: number) {
-    },
-});
-export { };
+    update(dt: number = 0) {
+    }
+}
+
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = ReConnect;

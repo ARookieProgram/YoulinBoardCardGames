@@ -1,26 +1,27 @@
 // 用户管理器：游客鉴权、登录、创建角色、进房间与战绩查询。
 //
-// 本文件是 ES5 风格（cc.Class / var / function）的 TypeScript 迁移产物：
+// 本文件用 ES6 class + @ccclass/@property 装饰器（Creator 2.4 的官方写法）：
 // 运行时行为与迁移前的 UserMgr.js 完全一致，只补了类型标注与跨网络边界的断言。
-cc.Class({
-    extends: cc.Component,
-    properties: {
-        account: null as string | number | null,
-        userId: null as number | null,
-        userName: null as string | null,
-        lv: 0,
-        exp: 0,
-        coins: 0,
-        gems: 0,
-        sign: 0 as string | number | null,
-        ip: "",
-        sex: 0,
-        roomData: null as string | null,
 
-        oldRoomId: null as string | null,
-    },
+const { ccclass, property } = cc._decorator;
 
-    guestAuth: function () {
+@ccclass
+export default class UserMgr extends cc.Component {
+    @property account: string | number | null = null;
+    @property userId: number | null = null;
+    @property userName: string | null = null;
+    @property lv: number = 0;
+    @property exp: number = 0;
+    @property coins: number = 0;
+    @property gems: number = 0;
+    @property sign: string | number | null = 0;
+    @property ip: string = "";
+    @property sex: number = 0;
+    @property roomData: string | null = null;
+
+    @property oldRoomId: string | null = null;
+
+    guestAuth() {
         var account: string | number | null = cc.args["account"];
         if (account == null) {
             account = cc.sys.localStorage.getItem("account");
@@ -32,9 +33,9 @@ cc.Class({
         }
 
         cc.vv.http.sendRequest("/guest", { account: account }, this.onAuth);
-    },
+    }
 
-    onAuth: function (ret: HttpResp) {
+    onAuth(ret: HttpResp) {
         var self = cc.vv.userMgr;
         if (ret.errcode !== 0) {
             console.log(ret.errmsg);
@@ -45,9 +46,9 @@ cc.Class({
             cc.vv.http.url = "http://" + cc.vv.SI.hall;
             self.login();
         }
-    },
+    }
 
-    login: function () {
+    login() {
         var self = this;
         var onLogin = function (ret: HttpResp) {
             if (ret.errcode !== 0) {
@@ -76,9 +77,9 @@ cc.Class({
         };
         cc.vv.wc.show("正在登录游戏");
         cc.vv.http.sendRequest("/login", { account: this.account, sign: this.sign }, onLogin);
-    },
+    }
 
-    create: function (name: string) {
+    create(name: string) {
         var self = this;
         var onCreate = function (ret: HttpResp) {
             if (ret.errcode !== 0) {
@@ -95,9 +96,9 @@ cc.Class({
             name: name
         };
         cc.vv.http.sendRequest("/create_user", data, onCreate);
-    },
+    }
 
-    enterRoom: function (roomId: string | number | null, callback?: (ret: HttpResp) => void) {
+    enterRoom(roomId: string | number | null, callback?: (ret: HttpResp) => void) {
         var self = this;
         var onEnter = function (ret: HttpResp) {
             if (ret.errcode !== 0) {
@@ -129,8 +130,9 @@ cc.Class({
         };
         cc.vv.wc.show("正在进入房间 " + roomId);
         cc.vv.http.sendRequest("/enter_private_room", data, onEnter);
-    },
-    getHistoryList: function (callback: (history: unknown) => void) {
+    }
+
+    getHistoryList(callback: (history: unknown) => void) {
         var self = this;
         var onGet = function (ret: HttpResp) {
             if (ret.errcode !== 0) {
@@ -149,8 +151,9 @@ cc.Class({
             sign: cc.vv.userMgr.sign,
         };
         cc.vv.http.sendRequest("/get_history_list", data, onGet);
-    },
-    getGamesOfRoom: function (uuid: string, callback: (data: unknown) => void) {
+    }
+
+    getGamesOfRoom(uuid: string, callback: (data: unknown) => void) {
         var self = this;
         var onGet = function (ret: HttpResp) {
             if (ret.errcode !== 0) {
@@ -168,9 +171,9 @@ cc.Class({
             uuid: uuid,
         };
         cc.vv.http.sendRequest("/get_games_of_room", data, onGet);
-    },
+    }
 
-    getDetailOfGame: function (uuid: string, index: number, callback: (data: unknown) => void) {
+    getDetailOfGame(uuid: string, index: number, callback: (data: unknown) => void) {
         var self = this;
         var onGet = function (ret: HttpResp) {
             if (ret.errcode !== 0) {
@@ -190,6 +193,8 @@ cc.Class({
         };
         cc.vv.http.sendRequest("/get_detail_of_game", data, onGet);
     }
-});
+}
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = UserMgr;

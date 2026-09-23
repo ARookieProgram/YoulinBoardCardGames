@@ -80,32 +80,31 @@ function getBaseInfo(userid: number,callback: (userid: number, info: UserBaseInf
     }  
 };
 
-cc.Class({
-    extends: cc.Component,
-    properties: {
-        // foo: {
-        //    default: null,      // The default value will be used only when the component attaching
-        //                           to a node for the first time
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-    },
+const { ccclass } = cc._decorator;
 
-    // 老代码里的 `_spriteFrame` 是运行时动态挂到实例上的，**不在 properties 里**。
-    // 这里写 `undefined` 只是类型层面的说明：prototype 上的值仍是 undefined，
-    // 运行时状态与「字段不存在」完全一致，没有补任何初始值。
-    _spriteFrame: undefined as cc.SpriteFrame | undefined,
+@ccclass
+export default class ImageLoader extends cc.Component {
+    // foo: {
+    //    default: null,      // The default value will be used only when the component attaching
+    //                           to a node for the first time
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+
+    // 老代码里的 `_spriteFrame` 是运行时动态挂到实例上的，**不是 Creator 的序列化属性**。
+    // 这里用 declare 只声明类型、不产生运行时代码：与「字段不存在」完全一致，没有补任何初始值。
+    declare _spriteFrame: cc.SpriteFrame | undefined;
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         this.setupSpriteFrame();
-    },
-    
-    setUserID:function(userid: number){
+    }
+
+    setUserID(userid: number){
         if(!userid){
             return;
         }
@@ -122,9 +121,9 @@ cc.Class({
                 });   
             } 
         });
-    },
-    
-    setupSpriteFrame:function(){
+    }
+
+    setupSpriteFrame(){
         if(this._spriteFrame){
             // creator.d.ts 里 cc.Component.getComponent 只返回 cc.Component，这里断言成实际取到的 cc.Sprite。
             var spr = this.getComponent(cc.Sprite) as cc.Sprite;
@@ -137,5 +136,8 @@ cc.Class({
     // update: function (dt) {
 
     // },
-});
-export { };
+}
+
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = ImageLoader;

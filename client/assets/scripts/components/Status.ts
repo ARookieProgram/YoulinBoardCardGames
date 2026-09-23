@@ -3,39 +3,38 @@ interface ColorConstructor {
     new (r?: number, g?: number, b?: number, a?: number): cc.Color;
 }
 
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        // foo: {
-        //    default: null,      // The default value will be used only when the component attaching
-        //                           to a node for the first time
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        _status:null as cc.Node | null,
-    },
+@ccclass
+export default class Status extends cc.Component {
+    // foo: {
+    //    default: null,      // The default value will be used only when the component attaching
+    //                           to a node for the first time
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property _status: cc.Node | null = null;
 
     // 运行时动态字段（start() 里才赋值），没有补初始值。
-    red: undefined as cc.Color | undefined,
-    green: undefined as cc.Color | undefined,
-    yellow: undefined as cc.Color | undefined,
+    declare red: cc.Color | undefined;
+    declare green: cc.Color | undefined;
+    declare yellow: cc.Color | undefined;
 
     // use this for initialization
-    start: function () {
+    start() {
         this._status = cc.find('Canvas/status');
 
         this.red = new (cc.Color as ColorConstructor)(205,0,0);
         this.green = new (cc.Color as ColorConstructor)(0,205,0);
         this.yellow = new (cc.Color as ColorConstructor)(255,200,0);
-    },
+    }
 
     // called every frame, uncomment this function to activate update callback
-    update: function (dt: number) {
+    update(dt: number = 0) {
         var delay = this._status!.getChildByName('delay');
         if(cc.vv.net.delayMS != null){
             delay.getComponent(cc.Label).string = cc.vv.net.delayMS + 'ms';
@@ -56,6 +55,9 @@ cc.Class({
         
         var power = this._status!.getChildByName('power');
         power.scaleX = cc.vv.anysdkMgr.getBatteryPercent();
-    },
-});
-export { };
+    }
+}
+
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = Status;

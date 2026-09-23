@@ -1,39 +1,38 @@
 // 对局状态机：座位、手牌、轮次、定缺、换三张、结算。
 //
-// 本文件是 ES5 风格（cc.Class / var / function）的 TypeScript 迁移产物：
+// 本文件用 ES6 class + @ccclass/@property 装饰器（Creator 2.4 的官方写法）：
 // 运行时行为与迁移前的 GameNetMgr.js 完全一致，只补了类型标注与跨网络边界的断言。
 // `addHandler` 的回调收到的是 `unknown`（Net.js 已对字符串载荷做过 JSON.parse），
 // 每个回调第一句把它断言成 `types/domain.d.ts` 里的具体推送类型，这就是网络边界。
-cc.Class({
-    extends: cc.Component,
 
-    properties: {
-        dataEventHandler: null as cc.Node | null,
-        roomId: null as string | null,
-        maxNumOfGames: 0,
-        numOfGames: 0,
-        numOfMJ: 0,
-        seatIndex: -1,
-        seats: null as SeatData[] | null,
-        turn: -1,
-        button: -1,
-        dingque: -1,
-        chupai: -1,
-        isDingQueing: false,
-        isHuanSanZhang: false,
-        gamestate: "",
-        isOver: false,
-        dissoveData: null as DissolveNoticePush | null,
-    },
+const { ccclass, property } = cc._decorator;
 
-    // 以下三个字段老代码是运行时动态挂到实例上的，**不在 properties 里**。
-    // 这里给它们写上 `undefined` 只是为了在类型层面说明它们的存在：prototype 上的值仍是 undefined，
-    // 运行时状态与「字段不存在」完全一致，没有补任何初始值。
-    conf: undefined as GameConf | null | undefined,
-    curaction: undefined as ActionPushData | null | undefined,
-    huanpaimethod: undefined as number | undefined,
+@ccclass
+export default class GameNetMgr extends cc.Component {
+    @property dataEventHandler: cc.Node | null = null;
+    @property roomId: string | null = null;
+    @property maxNumOfGames: number = 0;
+    @property numOfGames: number = 0;
+    @property numOfMJ: number = 0;
+    @property seatIndex: number = -1;
+    @property seats: SeatData[] | null = null;
+    @property turn: number = -1;
+    @property button: number = -1;
+    @property dingque: number = -1;
+    @property chupai: number = -1;
+    @property isDingQueing: boolean = false;
+    @property isHuanSanZhang: boolean = false;
+    @property gamestate: string = "";
+    @property isOver: boolean = false;
+    @property dissoveData: DissolveNoticePush | null = null;
 
-    reset: function () {
+    // 以下字段老代码是运行时动态挂到实例上的，**不是 Creator 的序列化属性**。
+    // 这里用 declare 只声明类型、不产生运行时代码：与「字段不存在」完全一致，没有补任何初始值。
+    declare conf: GameConf | null | undefined;
+    declare curaction: ActionPushData | null | undefined;
+    declare huanpaimethod: number | undefined;
+
+    reset() {
         this.turn = -1;
         this.chupai = -1,
         this.dingque = -1;
@@ -56,9 +55,9 @@ cc.Class({
             this.seats![i].huanpais = null;
             this.huanpaimethod = -1;
         }
-    },
+    }
 
-    clear: function () {
+    clear() {
         this.dataEventHandler = null;
         if (this.isOver == null) {
             this.seats = null;
@@ -66,15 +65,15 @@ cc.Class({
             this.maxNumOfGames = 0;
             this.numOfGames = 0;
         }
-    },
+    }
 
     dispatchEvent(event: string, data?: unknown) {
         if (this.dataEventHandler) {
             this.dataEventHandler.emit(event, data);
         }
-    },
+    }
 
-    getSeatIndexByID: function (userId: number) {
+    getSeatIndexByID(userId: number) {
         for (var i = 0; i < this.seats!.length; ++i) {
             var s = this.seats![i];
             if (s.userid == userId) {
@@ -82,28 +81,28 @@ cc.Class({
             }
         }
         return -1;
-    },
+    }
 
-    isOwner: function () {
+    isOwner() {
         return this.seatIndex == 0;
-    },
+    }
 
-    getSeatByID: function (userId: number) {
+    getSeatByID(userId: number) {
         var seatIndex = this.getSeatIndexByID(userId);
         var seat = this.seats![seatIndex];
         return seat;
-    },
+    }
 
-    getSelfData: function () {
+    getSelfData() {
         return this.seats![this.seatIndex];
-    },
+    }
 
-    getLocalIndex: function (index: number) {
+    getLocalIndex(index: number) {
         var ret = (index - this.seatIndex + 4) % 4;
         return ret;
-    },
+    }
 
-    prepareReplay: function (roomInfo: HistoryRoomInfo, detailOfGame: ReplayDetail) {
+    prepareReplay(roomInfo: HistoryRoomInfo, detailOfGame: ReplayDetail) {
         this.roomId = roomInfo.id;
         this.seats = roomInfo.seats;
         this.turn = detailOfGame.base_info.button;
@@ -129,9 +128,9 @@ cc.Class({
         if (this.conf.type == null) {
             this.conf.type == "xzdd";
         }
-    },
+    }
 
-    getWanfa: function () {
+    getWanfa() {
         var conf = this.conf;
         if (conf && conf.maxGames != null && conf.maxFan != null) {
             var strArr = [];
@@ -164,9 +163,9 @@ cc.Class({
             return strArr.join(" ");
         }
         return "";
-    },
+    }
 
-    initHandlers: function () {
+    initHandlers() {
         var self = this;
         cc.vv.net.addHandler("login_result", function (data) {
             console.log(data);
@@ -520,7 +519,6 @@ cc.Class({
             self.dispatchEvent('game_dingque_finish', queList);
         });
 
-
         cc.vv.net.addHandler("chat_push", function (data) {
             self.dispatchEvent("chat_push", data);
         });
@@ -548,24 +546,24 @@ cc.Class({
         cc.vv.net.addHandler("voice_msg_push", function (data) {
             self.dispatchEvent("voice_msg", data);
         });
-    },
+    }
 
-    doGuo: function (seatIndex: number, pai: Pai) {
+    doGuo(seatIndex: number, pai: Pai) {
         var seatData = this.seats![seatIndex];
         var folds = seatData.folds;
         folds.push(pai);
         this.dispatchEvent('guo_notify', seatData);
-    },
+    }
 
-    doMopai: function (seatIndex: number, pai: Pai) {
+    doMopai(seatIndex: number, pai: Pai) {
         var seatData = this.seats![seatIndex];
         if (seatData.holds) {
             seatData.holds.push(pai);
             this.dispatchEvent('game_mopai', { seatIndex: seatIndex, pai: pai });
         }
-    },
+    }
 
-    doChupai: function (seatIndex: number, pai: Pai) {
+    doChupai(seatIndex: number, pai: Pai) {
         this.chupai = pai;
         var seatData = this.seats![seatIndex];
         if (seatData.holds) {
@@ -573,9 +571,9 @@ cc.Class({
             seatData.holds.splice(idx, 1);
         }
         this.dispatchEvent('game_chupai_notify', { seatData: seatData, pai: pai });
-    },
+    }
 
-    doPeng: function (seatIndex: number, pai: Pai) {
+    doPeng(seatIndex: number, pai: Pai) {
         var seatData = this.seats![seatIndex];
         //移除手牌
         if (seatData.holds) {
@@ -590,9 +588,9 @@ cc.Class({
         pengs.push(pai);
 
         this.dispatchEvent('peng_notify', seatData);
-    },
+    }
 
-    getGangType: function (seatData: SeatData, pai: Pai) {
+    getGangType(seatData: SeatData, pai: Pai) {
         if (seatData.pengs.indexOf(pai) != -1) {
             return "wangang";
         }
@@ -610,9 +608,9 @@ cc.Class({
                 return "angang";
             }
         }
-    },
+    }
 
-    doGang: function (seatIndex: number, pai: Pai, gangtype?: string) {
+    doGang(seatIndex: number, pai: Pai, gangtype?: string) {
         var seatData = this.seats![seatIndex];
 
         if (!gangtype) {
@@ -645,22 +643,22 @@ cc.Class({
             seatData.diangangs.push(pai);
         }
         this.dispatchEvent('gang_notify', { seatData: seatData, gangtype: gangtype });
-    },
+    }
 
-    doHu: function (data: HuPush) {
+    doHu(data: HuPush) {
         this.dispatchEvent('hupai', data);
-    },
+    }
 
-    doTurnChange: function (si: number) {
+    doTurnChange(si: number) {
         var data = {
             last: this.turn,
             turn: si,
         }
         this.turn = si;
         this.dispatchEvent('game_chupai', data);
-    },
+    }
 
-    connectGameServer: function (data: HttpResp) {
+    connectGameServer(data: HttpResp) {
         this.dissoveData = null;
         cc.vv.net.ip = data.ip + ":" + data.port;
         console.log(cc.vv.net.ip);
@@ -684,11 +682,12 @@ cc.Class({
         cc.vv.wc.show("正在进入房间");
         cc.vv.net.connect(onConnectOK, onConnectFailed);
     }
-
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-});
+}
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = GameNetMgr;

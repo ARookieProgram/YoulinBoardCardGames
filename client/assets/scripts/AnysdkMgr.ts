@@ -3,46 +3,44 @@ if(cc.sys.isNative){
         
     }
 }
-cc.Class({
-    extends: cc.Component,
 
-    properties: {
-        // foo: {
-        //    default: null,      // The default value will be used only when the component attaching
-        //                           to a node for the first time
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        // `as boolean` 只是类型标注（会被擦除），否则这里会被推成字面量 false，
-        // 与 shareResult 里的 `this._isCapturing = true` 及 AnysdkMgr 接口冲突
-        _isCapturing:false as boolean,
-    },
+const { ccclass, property } = cc._decorator;
 
-    // 以下两个字段老代码是运行时在 init() 里动态挂到实例上的，**不在 properties 里**。
-    // 这里给它们写上 `undefined` 只是为了在类型层面说明它们的存在：prototype 上的值仍是 undefined，
-    // 运行时状态与「字段不存在」完全一致，没有补任何初始值。
-    ANDROID_API: undefined as string | undefined,
-    IOS_API: undefined as string | undefined,
+@ccclass
+export default class AnysdkMgr extends cc.Component {
+    // foo: {
+    //    default: null,      // The default value will be used only when the component attaching
+    //                           to a node for the first time
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    // 标注 boolean 而不是让初值 `false` 推定成字面量类型，否则与 shareResult 里的
+    // `this._isCapturing = true` 及 AnysdkMgr 接口冲突
+    @property _isCapturing: boolean = false;
+
+    // 以下字段老代码是运行时动态挂到实例上的，**不是 Creator 的序列化属性**。
+    // 这里用 declare 只声明类型、不产生运行时代码：与「字段不存在」完全一致，没有补任何初始值。
+    declare ANDROID_API: string | undefined;
+    declare IOS_API: string | undefined;
 
     // use this for initialization
-    onLoad: function () {
-    },
+    onLoad() {
+    }
 
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-    
-    init:function(){
+    init(){
         this.ANDROID_API = "com/babykylin/NativeAPI";
         this.IOS_API = "AppController";
-    },
+    }
 
-    getBatteryPercent:function(): number{
+    getBatteryPercent(): number{
         if(cc.sys.isNative){
             if(cc.sys.os == cc.sys.OS_ANDROID){
                 // jsb 反射调用是动态边界，按原生约定断言成 number
@@ -53,9 +51,9 @@ cc.Class({
             }            
         }
         return 0.9;
-    },
-    
-    login:function(){
+    }
+
+    login(){
         if(cc.sys.os == cc.sys.OS_ANDROID){ 
             jsb.reflection.callStaticMethod(this.ANDROID_API, "Login", "()V");
         }
@@ -65,9 +63,9 @@ cc.Class({
         else{
             console.log("platform:" + cc.sys.os + " dosn't implement share.");
         }
-    },
-    
-    share:function(title: string,desc: string){
+    }
+
+    share(title: string,desc: string){
         if(cc.sys.os == cc.sys.OS_ANDROID){
             jsb.reflection.callStaticMethod(this.ANDROID_API, "Share", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",cc.vv.SI.appweb,title,desc);
         }
@@ -77,9 +75,9 @@ cc.Class({
         else{
             console.log("platform:" + cc.sys.os + " dosn't implement share.");
         }
-    },
-    
-    shareResult:function(){
+    }
+
+    shareResult(){
         if(this._isCapturing){
             return;
         }
@@ -127,9 +125,9 @@ cc.Class({
             }
         }
         setTimeout(fn,50);
-    },
-    
-    onLoginResp:function(code: unknown){
+    }
+
+    onLoginResp(code: unknown){
         var fn = function(ret: HttpResp){
             if(ret.errcode == 0){
                 cc.sys.localStorage.setItem("wx_account",ret.account!);
@@ -138,7 +136,9 @@ cc.Class({
             cc.vv.userMgr.onAuth(ret);
         }
         cc.vv.http.sendRequest("/wechat_auth",{code:code,os:cc.sys.os},fn);
-    },
-});
+    }
+}
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = AnysdkMgr;

@@ -72,26 +72,25 @@ function decode(content: string){
     return newData;
 }
 
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        // foo: {
-        //    default: null,      // The default value will be used only when the component attaching
-        //                           to a node for the first time
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        onPlayCallback:null as (() => void) | null,
-        _voiceMediaPath:null as string | null,
-    },
+@ccclass
+export default class VoiceMgr extends cc.Component {
+    // foo: {
+    //    default: null,      // The default value will be used only when the component attaching
+    //                           to a node for the first time
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property onPlayCallback: (() => void) | null = null;
+    @property _voiceMediaPath: string | null = null;
 
     // use this for initialization
-    init: function () {
+    init() {
         /*
         var url = cc.url.raw("resources/test.amr");
         var fileData = jsb.fileUtils.getDataFromFile(url);
@@ -117,9 +116,9 @@ cc.Class({
             this._voiceMediaPath = jsb.fileUtils.getWritablePath() + "/voicemsgs/";
             this.setStorageDir(this._voiceMediaPath);
         }
-    },
-    
-    prepare:function(filename: string){
+    }
+
+    prepare(filename: string){
         if(!cc.sys.isNative){
             return;
         }
@@ -131,9 +130,9 @@ cc.Class({
         else if(cc.sys.os == cc.sys.OS_IOS){
             jsb.reflection.callStaticMethod("VoiceSDK", "prepareRecord:",filename);
         }
-    },
-    
-    release:function(){
+    }
+
+    release(){
         if(!cc.sys.isNative){
             return;
         }
@@ -144,9 +143,9 @@ cc.Class({
         else if(cc.sys.os == cc.sys.OS_IOS){
             jsb.reflection.callStaticMethod("VoiceSDK", "finishRecord");
         }
-    },
-    
-    cancel:function(){
+    }
+
+    cancel(){
         if(!cc.sys.isNative){
             return;
         }
@@ -157,9 +156,9 @@ cc.Class({
         else if(cc.sys.os == cc.sys.OS_IOS){
             jsb.reflection.callStaticMethod("VoiceSDK", "cancelRecord");
         }
-    },
+    }
 
-    writeVoice:function(filename: string,voiceData: unknown){
+    writeVoice(filename: string,voiceData: unknown){
         if(!cc.sys.isNative){
             return;
         }
@@ -170,9 +169,9 @@ cc.Class({
             this.clearCache(filename);
             jsb.fileUtils.writeDataToFile(fileData,url); 
         }
-    },
-    
-    clearCache:function(filename: string){
+    }
+
+    clearCache(filename: string){
         if(cc.sys.isNative){
             var url = this._voiceMediaPath! + filename;
             //console.log("check file:" + url);
@@ -185,9 +184,9 @@ cc.Class({
                 jsb.fileUtils.removeFile(url + ".wav");
             }   
         }
-    },
-    
-    play:function(filename: string){
+    }
+
+    play(filename: string){
         if(!cc.sys.isNative){
             return;
         }
@@ -200,9 +199,9 @@ cc.Class({
         }
         else{
         }
-    },
-    
-    stop:function(){
+    }
+
+    stop(){
         if(!cc.sys.isNative){
             return;
         }
@@ -215,9 +214,9 @@ cc.Class({
         }
         else{
         }
-    },
-    
-    getVoiceLevel:function(maxLevel: number): number{
+    }
+
+    getVoiceLevel(maxLevel: number): number{
         return Math.floor(Math.random() * maxLevel + 1);
         // 以下分支在旧代码里就不可达，保留原样；jsb 调用按原生约定断言成 number
         if(cc.sys.os == cc.sys.OS_ANDROID){ 
@@ -228,9 +227,9 @@ cc.Class({
         else{
             return Math.floor(Math.random() * maxLevel + 1);
         }
-    },
-    
-    getVoiceData:function(filename: string){
+    }
+
+    getVoiceData(filename: string){
         if(cc.sys.isNative){
             var url = this._voiceMediaPath! + filename;
             console.log("getVoiceData:" + url);
@@ -241,17 +240,17 @@ cc.Class({
             }
         }
         return "";
-    },
-    
-    download:function(){
+    }
+
+    download(){
         
-    },
+    }
+
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-    
-    setStorageDir:function(dir: string){
+    setStorageDir(dir: string){
         if(!cc.sys.isNative){
             return;
         }
@@ -265,6 +264,8 @@ cc.Class({
             }
         }
     }
-});
+}
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = VoiceMgr;

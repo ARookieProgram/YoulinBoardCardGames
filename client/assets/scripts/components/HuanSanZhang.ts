@@ -1,29 +1,29 @@
 // 换三张：选牌、换牌提示与换牌结果的显示。
 //
-// 本文件是 ES5 风格（cc.Class / var / function）的 TypeScript 迁移产物：
+// 本文件用 ES6 class + @ccclass/@property 装饰器（Creator 2.4 的官方写法）：
 // 运行时行为与迁移前的 HuanSanZhang.js 完全一致，只补了类型标注、可空属性的 `!` 断言
 // 与本地事件载荷的类型断言。
-cc.Class({
-    extends: cc.Component,
 
-    properties: {
-        // foo: {
-        //    default: null,      // The default value will be used only when the component attaching
-        //                           to a node for the first time
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        _huanpaitip:null as cc.Node | null,
-        // 选中的牌节点，运行期就地增删；初值仍是空数组。
-        _huanpaiArr:[] as cc.Node[]
-    },
+const { ccclass, property } = cc._decorator;
+
+@ccclass
+export default class HuanSanZhang extends cc.Component {
+    // foo: {
+    //    default: null,      // The default value will be used only when the component attaching
+    //                           to a node for the first time
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property _huanpaitip: cc.Node | null = null;
+    // 选中的牌节点，运行期就地增删；初值仍是空数组。
+    @property _huanpaiArr: cc.Node[] = [];
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         this._huanpaitip = cc.find("Canvas/huansanzhang");
         this._huanpaitip!.active = cc.vv.gameNetMgr.isHuanSanZhang;
         
@@ -90,15 +90,15 @@ cc.Class({
                 }
             } 
         });
-    },
-    
-    showHuanpai:function(interactable: boolean){
+    }
+
+    showHuanpai(interactable: boolean){
         this._huanpaitip!.getChildByName("info").getComponent(cc.Label).string = interactable? "请选择三张一样花色的牌":"等待其他玩家选牌...";
         this._huanpaitip!.getChildByName("btn_ok").getComponent(cc.Button).interactable = interactable;
         this._huanpaitip!.getChildByName("mask").active = false;        
-    },
-    
-    initHuaipaiInfo:function(){
+    }
+
+    initHuaipaiInfo(){
         var huaipaiinfo = cc.find("Canvas/game/huanpaiinfo");
         var seat = cc.vv.gameNetMgr.getSelfData();
         if(seat.huanpais == null){
@@ -124,9 +124,9 @@ cc.Class({
         else{
             hpm.active = false;
         }
-    },
-    
-    onHuanSanZhang:function(event: cc.Event){
+    }
+
+    onHuanSanZhang(event: cc.Event){
         if(this._huanpaiArr.length != 3){
             return;
         }
@@ -157,11 +157,13 @@ cc.Class({
         this._huanpaitip!.getChildByName("mask").active = true;
         
         cc.vv.net.send("huanpai",data);
-    },
-
+    }
     // called every frame, uncomment this function to activate update callback
     // update: function (dt) {
 
     // },
-});
-export { };
+}
+
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = HuanSanZhang;

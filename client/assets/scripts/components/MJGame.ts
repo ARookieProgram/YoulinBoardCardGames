@@ -1,6 +1,6 @@
 // 对局主控：进入牌局后手牌、牌河、操作按钮、定缺、换三张、结算等全部交互都在这里。
 //
-// 本文件是 ES5 风格（cc.Class / var / function）的 TypeScript 迁移产物：
+// 本文件用 ES6 class + @ccclass/@property 装饰器（Creator 2.4 的官方写法）：
 // 运行时行为与迁移前的 MJGame.js 完全一致，只补了类型标注与本地事件载荷的断言。
 
 /** `game_chupai` 本地事件载荷（GameNetMgr.doTurnChange 派发）。 */
@@ -28,8 +28,8 @@ interface GangNotifyEvent {
 }
 
 /**
- * 组件实例上被嵌套回调用到的成员：cc.Class 的 ThisType 只作用于 options 对象本身，
- * 包在 `.bind(this)` 里的 function 拿不到它，所以显式声明一个 this 类型。
+ * 组件实例上被嵌套回调用到的成员：包在 `.bind(this)` 里的 function 拿不到
+ * 类方法的 `this` 类型，所以显式声明一个 this 类型。
  * `function (this: ...)` 是可擦除语法，运行时签名不变。
  */
 interface MJGameSelf extends cc.Component {
@@ -38,39 +38,37 @@ interface MJGameSelf extends cc.Component {
     shoot(mjId: number | null): void;
 }
 
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {        
-        gameRoot:{
-            default:null as cc.Node | null,
-            type:cc.Node
-        },
-        
-        prepareRoot:{
-            default:null as cc.Node | null,
-            type:cc.Node   
-        },
-        
-        // 以下属性沿用原来的简写写法（`null` / `[]` 就是默认值），只补类型标注。
-        _myMJArr:[] as cc.Sprite[],
-        _options:null as cc.Node | null,
-        _selectedMJ:null as cc.Node | null,
-        _chupaiSprite:[] as cc.Sprite[],
-        _mjcount:null as cc.Label | null,
-        _gamecount:null as cc.Label | null,
-        _hupaiTips:[] as cc.Node[],
-        _hupaiLists:[] as cc.Node[],
-        _playEfxs:[] as cc.Animation[],
-        _opts:[] as { node: cc.Node; sprite: cc.Sprite }[],
-    },
+@ccclass
+export default class MJGame extends cc.Component {
+    @property({type: cc.Node}) gameRoot: cc.Node | null = null as cc.Node | null;
 
-    // 以下字段老代码是运行时动态挂到实例上的，**不在 properties 里**（`initView` 里直接赋值）。
-    // 这里写上 `undefined` 只是为了在类型层面说明它的存在：prototype 上的值仍是 undefined，
-    // 与「字段不存在」等价，没有补任何初始值。
-    _chupaidrag: undefined as cc.Node | undefined,
-    
-    onLoad: function () {
+    @property({type: cc.Node}) prepareRoot: cc.Node | null = null as cc.Node | null;
+    // 以下属性的初值就是老代码的默认值（`null` / `[]`），类型标注是迁移时补的。
+    @property _myMJArr: cc.Sprite[] = [];
+    @property _options: cc.Node | null = null;
+    @property _selectedMJ: cc.Node | null = null;
+    @property _chupaiSprite: cc.Sprite[] = [];
+    @property _mjcount: cc.Label | null = null;
+    @property _gamecount: cc.Label | null = null;
+    @property _hupaiTips: cc.Node[] = [];
+    @property _hupaiLists: cc.Node[] = [];
+    @property _playEfxs: cc.Animation[] = [];
+    @property _opts: { node: cc.Node; sprite: cc.Sprite }[] = [];
+    // 老代码在 game_mopai 里给这个方法多传了一个被忽略的第 4 个实参（index），
+    // 这里用一次断言把类型放宽到 4 个形参，只为让原调用通过类型检查；`as` 是可擦除语法，运行期不变。
+    // 类方法挂不了 `as`，所以它写成挂在实例上的函数字段：调用方式与运行期行为不变。
+    setSpriteFrameByMJID = function(pre: string,sprite: cc.Sprite,mjid: Pai){
+        sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,mjid);
+        sprite.node.active = true;
+    } as (pre: string, sprite: cc.Sprite, mjid: Pai, index?: number) => void;
+
+    // 以下字段老代码是运行时动态挂到实例上的（`initView` 里直接赋值），不是 Creator 的序列化属性。
+    // 这里用 declare 只声明类型、不产生运行时代码：与「字段不存在」完全一致，没有补任何初始值。
+    declare _chupaidrag: cc.Node | undefined;
+
+    onLoad() {
         cc.vv.utils.setFitSreenMode();
         this.addComponent("NoticeTip");
         this.addComponent("GameOver");
@@ -98,9 +96,9 @@ cc.Class({
         this.onGameBeign();
         cc.vv.audioMgr.playBGM("bgFight.mp3");
         cc.vv.utils.addEscEvent(this.node);
-    },
-    
-    initView:function(){
+    }
+
+    initView(){
         
         //搜索需要的子节点
         var gameChild = this.node.getChildByName("game");
@@ -152,13 +150,13 @@ cc.Class({
         this._options = opts;
         this.hideOptions();
         this.hideChupai();
-    },
+    }
 
-    start:function(){
+    start(){
         this.checkIp();
-    },
+    }
 
-    checkIp:function(){
+    checkIp(){
         if(cc.vv.gameNetMgr.gamestate == ''){
             return;
         }
@@ -184,9 +182,9 @@ cc.Class({
                 return; 
             }
         }
-    },
+    }
 
-    initDragStuffs: function (node: cc.Node) {
+    initDragStuffs(node: cc.Node) {
         //break if it's not my turn.
         node.on(cc.Node.EventType.TOUCH_START, function (this: MJGameSelf, event: cc.Event.EventTouch) {
             console.log("cc.Node.EventType.TOUCH_START");
@@ -257,15 +255,15 @@ cc.Class({
                 //this._huadongtishi.getComponent(cc.Animation).play('huadongtishi');
             }
         }.bind(this));
-    },
-    
-    hideChupai:function(){
+    }
+
+    hideChupai(){
         for(var i = 0; i < this._chupaiSprite.length; ++i){
             this._chupaiSprite[i].node.active = false;
         }        
-    },
-    
-    initEventHandlers:function(){
+    }
+
+    initEventHandlers(){
         cc.vv.gameNetMgr.dataEventHandler = this.node;
         
         //初始化事件监听器
@@ -476,9 +474,9 @@ cc.Class({
             self.prepareRoot!.active = true;
             console.log('login_result');
         });
-    },
-    
-    showChupai:function(){
+    }
+
+    showChupai(){
         var pai = cc.vv.gameNetMgr.chupai; 
         if( pai >= 0 ){
             //
@@ -487,9 +485,9 @@ cc.Class({
             sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID("M_",pai);
             sprite.node.active = true;   
         }
-    },
-    
-    addOption:function(btnName: string,pai: Pai){
+    }
+
+    addOption(btnName: string,pai: Pai){
         for(var i = 0; i < this._options!.childrenCount; ++i){
             var child = this._options!.children[i]; 
             if(child.name == "op" && child.active == false){
@@ -502,9 +500,9 @@ cc.Class({
                 return;
             }
         }
-    },
-    
-    hideOptions:function(data?: unknown){
+    }
+
+    hideOptions(data?: unknown){
         this._options!.active = false;
         for(var i = 0; i < this._options!.childrenCount; ++i){
             var child = this._options!.children[i]; 
@@ -515,9 +513,9 @@ cc.Class({
                 child.getChildByName("btnHu").active = false;
             }
         }
-    },
-    
-    showAction:function(data: ActionPushData){
+    }
+
+    showAction(data: ActionPushData){
         if(this._options!.active){
             this.hideOptions();
         }
@@ -538,14 +536,14 @@ cc.Class({
                 }
             }   
         }
-    },
-    
-    initWanfaLabel:function(){
+    }
+
+    initWanfaLabel(){
         var wanfa = cc.find("Canvas/infobar/wanfa").getComponent(cc.Label);
         wanfa.string = cc.vv.gameNetMgr.getWanfa();
-    },
-    
-    initHupai:function(localIndex: number,pai: Pai){
+    }
+
+    initHupai(localIndex: number,pai: Pai){
         if(cc.vv.gameNetMgr.conf!.type == "xlch"){
             var hupailist = this._hupaiLists[localIndex];
             for(var i = 0; i < hupailist.children.length; ++i){
@@ -558,14 +556,14 @@ cc.Class({
                 }
             }   
         }
-    },
-    
-    playEfx:function(index: number,name: string){
+    }
+
+    playEfx(index: number,name: string){
         this._playEfxs[index].node.active = true;
         this._playEfxs[index].play(name);
-    },
-    
-    onGameBeign:function(){
+    }
+
+    onGameBeign(){
         
         for(var i = 0; i < this._playEfxs.length; ++i){
             this._playEfxs[i].node.active = false;
@@ -647,9 +645,9 @@ cc.Class({
         }
         
         this.checkQueYiMen();
-    },
-    
-    onMJClicked:function(event: { target: cc.Node }){
+    }
+
+    onMJClicked(event: { target: cc.Node }){
         if(cc.vv.gameNetMgr.isHuanSanZhang){
             this.node.emit("mj_clicked",event.target);
             return;
@@ -678,24 +676,25 @@ cc.Class({
                 return;
             }
         }
-    },
+    }
+
     
     //出牌
-    shoot:function(mjId: number | null){
+    shoot(mjId: number | null){
         if(mjId == null){
             return;
         }
         cc.vv.net.send('chupai',mjId);
-    },
-    
-    getMJIndex:function(side: string,index: number){
+    }
+
+    getMJIndex(side: string,index: number){
         if(side == "right" || side == "up"){
             return 13 - index;
         }
         return index;
-    },
-    
-    initMopai:function(seatIndex: number,pai: number | null){
+    }
+
+    initMopai(seatIndex: number,pai: number | null){
         var localIndex = cc.vv.gameNetMgr.getLocalIndex(seatIndex);
         var side = cc.vv.mahjongmgr.getSide(localIndex);
         var pre = cc.vv.mahjongmgr.getFoldPre(localIndex);
@@ -732,9 +731,9 @@ cc.Class({
             // 该方法声明返回非空，但这里可能拿到 null；断言只影响类型，值原样赋给 spriteFrame。
             sprite.spriteFrame = cc.vv.mahjongmgr.getHoldsEmptySpriteFrame(side) as cc.SpriteFrame;
         }
-    },
-    
-    initEmptySprites:function(seatIndex: number){
+    }
+
+    initEmptySprites(seatIndex: number){
         var localIndex = cc.vv.gameNetMgr.getLocalIndex(seatIndex);
         var side = cc.vv.mahjongmgr.getSide(localIndex);
         var pre = cc.vv.mahjongmgr.getFoldPre(localIndex);
@@ -751,9 +750,9 @@ cc.Class({
             var sprite = nc.getComponent(cc.Sprite); 
             sprite.spriteFrame = spriteFrame;
         }
-    },
-    
-    initOtherMahjongs:function(seatData: SeatData){
+    }
+
+    initOtherMahjongs(seatData: SeatData){
         //console.log("seat:" + seatData.seatindex);
         var localIndex = this.getLocalIndex(seatData.seatindex);
         if(localIndex == 0){
@@ -789,9 +788,9 @@ cc.Class({
                 sideHolds.children[lasetIdx].active = false;
             }
         }
-    },
-    
-    sortHolds:function(seatData: SeatData){
+    }
+
+    sortHolds(seatData: SeatData){
         var holds = seatData.holds;
         if(holds == null){
             return null;
@@ -811,9 +810,9 @@ cc.Class({
             holds.push(mopai);
         }
         return holds;
-    },
-    
-    initMahjongs:function(){
+    }
+
+    initMahjongs(){
         var seats = cc.vv.gameNetMgr.seats;
         var seatData = seats![cc.vv.gameNetMgr.seatIndex];
         var holds = this.sortHolds(seatData);
@@ -842,17 +841,11 @@ cc.Class({
             sprite.spriteFrame = null as unknown as cc.SpriteFrame;
             sprite.node.active = false;            
         }
-    },
-    
-    // 老代码在 game_mopai 里给这个方法多传了一个被忽略的第 4 个实参（index），
-    // 这里用一次断言把类型放宽到 4 个形参，只为让原调用通过类型检查；`as` 是可擦除语法，运行期不变。
-    setSpriteFrameByMJID:function(pre: string,sprite: cc.Sprite,mjid: Pai){
-        sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,mjid);
-        sprite.node.active = true;
-    } as (pre: string, sprite: cc.Sprite, mjid: Pai, index?: number) => void,
+    }
+
     
     //如果玩家手上还有缺的牌没有打，则只能打缺牌
-    checkQueYiMen:function(){
+    checkQueYiMen(){
         if(cc.vv.gameNetMgr.conf==null || cc.vv.gameNetMgr.conf.type != "xlch" || !cc.vv.gameNetMgr.getSelfData().hued){
             //遍历检查看是否有未打缺的牌 如果有，则需要将不是定缺的牌设置为不可用
             var dingque = cc.vv.gameNetMgr.dingque;
@@ -904,15 +897,15 @@ cc.Class({
                 }
             }
         }
-    },
-    
-    getLocalIndex:function(index: number){
+    }
+
+    getLocalIndex(index: number){
         var ret = (index - cc.vv.gameNetMgr.seatIndex + 4) % 4;
         //console.log("old:" + index + ",base:" + cc.vv.gameNetMgr.seatIndex + ",new:" + ret);
         return ret;
-    },
-    
-    onOptionClicked:function(event: { target: cc.Node }){
+    }
+
+    onOptionClicked(event: { target: cc.Node }){
         console.log(event.target.pai);
         if(event.target.name == "btnPeng"){
             cc.vv.net.send("peng");
@@ -926,18 +919,21 @@ cc.Class({
         else if(event.target.name == "btnGuo"){
             cc.vv.net.send("guo");
         }
-    },
+    }
+
     
     // called every frame, uncomment this function to activate update callback
-    update: function (dt: number) {
-    },
-    
-    onDestroy:function(){
+    update(dt: number = 0) {
+    }
+
+    onDestroy(){
         console.log("onDestroy");
         if(cc.vv){
             cc.vv.gameNetMgr.clear();   
         }
     }
-});
+}
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = MJGame;

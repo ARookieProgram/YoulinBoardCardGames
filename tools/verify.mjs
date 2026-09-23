@@ -133,8 +133,8 @@ async function typesCheck() {
       skipped: audit.failures.length === 0,
       summary:
         audit.failures.length === 0
-          ? `skipped — ${audit.files} 个 .ts 已通过 no-any 审计；未找到 server/node_modules/typescript（先 cd server && yarn install）`
-          : `${audit.failures.length} 处 any / 类型检查逃生舱`,
+          ? `skipped — ${audit.files} 个 .ts 已通过 no-any 审计（client 另查 cc.Class）；未找到 server/node_modules/typescript（先 cd server && yarn install）`
+          : `${audit.failures.length} 处类型检查逃生舱或客户端脚本契约违规`,
       failures: audit.failures,
     };
   }
@@ -156,11 +156,15 @@ async function typesCheck() {
     }
   }
 
+  const auditSummary =
+    audit.failures.length === 0
+      ? `${audit.files} 个 .ts 无 any / 类型逃生舱（含 client 的 ${audit.clientFiles} 个：无 cc.Class、都有 module.exports）`
+      : `${audit.failures.length} 处类型检查逃生舱或客户端脚本契约违规`;
   return {
     name: "types",
     title: "TypeScript strict type-check",
     ok: failures.length === 0,
-    summary: `${audit.files} 个 .ts 无 any / 类型逃生舱；tsc（strict）：${status.join("、")}`,
+    summary: `${auditSummary}；tsc（strict）：${status.join("、")}`,
     failures,
   };
 }
@@ -196,13 +200,29 @@ const FORBIDDEN_TYPE_PATTERNS = [
 ];
 
 /**
- * Audit every first-party `.ts` file for explicit `any` and type-check escapes.
+ * Client-only source rules.
+ *
+ * Components are ES6 classes with `cc._decorator` decorators
+ * (`@ccclass` / `@property`); the old `cc.Class({...})` form is gone.
+ * Nothing else would catch a comeback: `creator.d.ts` still declares
+ * `cc.Class`, so `tsc` is happy with it and the old and new spellings both run.
+ */
+const FORBIDDEN_CLIENT_PATTERNS = [
+  {
+    pattern: /(?<![.\w])cc\.Class\s*\(/,
+    label: "cc.Class 写法（客户端组件请用 ES6 class + @ccclass / @property）",
+  },
+];
+
+/**
+ * Audit every first-party `.ts` file for explicit `any` and type-check escapes,
+ * and the client tree for the retired `cc.Class` spelling.
  *
  * Comments are blanked out (newlines kept so line numbers stay true) before
  * matching, so prose about `any` — including the rules themselves — is not
  * mistaken for a violation.
  *
- * @returns {Promise<{ files: number, failures: string[] }>} audit outcome.
+ * @returns {Promise<{ files: number, clientFiles: number, failures: string[] }>} audit outcome.
  */
 async function auditNoAnyEscapeHatches() {
   const { readFile } = await import("node:fs/promises");
@@ -211,6 +231,7 @@ async function auditNoAnyEscapeHatches() {
     exclude: ["/assets/scripts/3rdparty/"],
   });
   const files = [...serverFiles, ...clientFiles].filter((file) => file.endsWith(".ts"));
+  const clientRoot = join(ROOT, "client");
   const failures = [];
 
   for (const file of files) {
@@ -218,16 +239,37 @@ async function auditNoAnyEscapeHatches() {
     const blanked = source
       .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, " "))
       .replace(/\/\/[^\n]*/g, "");
+    const patterns = file.startsWith(clientRoot)
+      ? [...FORBIDDEN_TYPE_PATTERNS, ...FORBIDDEN_CLIENT_PATTERNS]
+      : FORBIDDEN_TYPE_PATTERNS;
     blanked.split("\n").forEach((line, index) => {
-      for (const { pattern, label } of FORBIDDEN_TYPE_PATTERNS) {
+      for (const { pattern, label } of patterns) {
         if (pattern.test(line)) {
           failures.push(`${displayPath(ROOT, file)}:${index + 1} 出现${label}：${line.trim()}`);
         }
       }
     });
+
+    // Creator's loader returns `module.exports`, and `export default class X`
+    // compiles (tsc, `module: commonjs`) to `exports.default = X` — so a
+    // component without the explicit assignment makes every `require("X")`
+    // hand back `{__esModule, default}`. The runtime error is
+    // "X is not a constructor", and neither tsc nor the syntax check sees it.
+    if (file.startsWith(clientRoot)) {
+      const exported = /export\s+default\s+class\s+([A-Za-z_$][\w$]*)/.exec(blanked);
+      if (exported) {
+        const name = exported[1];
+        if (!new RegExp(`(^|\\n)\\s*module\\.exports\\s*=\\s*${name}\\s*;`).test(blanked)) {
+          failures.push(
+            `${displayPath(ROOT, file)} 缺少 \`module.exports = ${name};\`：` +
+              `Creator 的 require("${name}") 取的是 module.exports，export default 只会编译成 exports.default`,
+          );
+        }
+      }
+    }
   }
 
-  return { files: files.length, failures };
+  return { files: files.length, clientFiles: clientFiles.length, failures };
 }
 
 /**

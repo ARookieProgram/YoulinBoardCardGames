@@ -1,16 +1,16 @@
-var Global = cc.Class({
-    extends: cc.Component,
-    // 这些静态字段就是 cc.vv.global（GlobalClass）的全部成员；断言只作用于类型，
-    // 运行时仍是一个普通对象字面量，字段与初值一个都没动。
-    statics: {
-        isstarted:false,
-        netinited:false,
-        userguid:0,
-        nickname:"",
-        money:0,
-        lv:0,
-        roomId:0,
-    } as GlobalClass,
-});
+const { ccclass } = cc._decorator;
 
-export { };
+@ccclass
+export default class Global extends cc.Component {
+    static isstarted: boolean = false;
+    static netinited: boolean = false;
+    static userguid: number = 0;
+    static nickname: string = "";
+    static money: number = 0;
+    static lv: number = 0;
+    static roomId: number = 0;
+}
+
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = Global;

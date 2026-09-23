@@ -1,33 +1,33 @@
 // 弹窗管理：设置面板与解散房间确认框。
 //
-// 本文件是 ES5 风格（cc.Class / var / function）的 TypeScript 迁移产物：
+// 本文件用 ES6 class + @ccclass/@property 装饰器（Creator 2.4 的官方写法）：
 // 运行时行为与迁移前的 PopupMgr.js 完全一致，只补了类型标注、可空属性的 `!` 断言
 // 与本地事件载荷的类型断言。
-cc.Class({
-    extends: cc.Component,
 
-    properties: {
-        // foo: {
-        //    default: null,
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-        _popuproot:null as cc.Node | null,
-        _settings:null as cc.Node | null,
-        _dissolveNotice:null as cc.Node | null,
-        
-        _endTime:-1,
-        // 运行期会被拼成一段多行文本，初值仍是 null（没有补初始值）。
-        _extraInfo:null as string | null,
-        _noticeLabel:null as cc.Label | null,
-    },
+const { ccclass, property } = cc._decorator;
+
+@ccclass
+export default class PopupMgr extends cc.Component {
+    // foo: {
+    //    default: null,
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+    @property _popuproot: cc.Node | null = null;
+    @property _settings: cc.Node | null = null;
+    @property _dissolveNotice: cc.Node | null = null;
+
+    @property _endTime: number = -1;
+    // 运行期会被拼成一段多行文本，初值仍是 null（没有补初始值）。
+    @property _extraInfo: string | null = null;
+    @property _noticeLabel: cc.Label | null = null;
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         if(cc.vv == null){
             return;
         }
@@ -56,20 +56,20 @@ cc.Class({
         this.node.on("dissolve_cancel",function(event){
             self.closeAll();
         });
-    },
-    
-    start:function(){
+    }
+
+    start(){
         if(cc.vv.gameNetMgr.dissoveData){
             this.showDissolveNotice(cc.vv.gameNetMgr.dissoveData);
         }
-    },
-    
-    addBtnHandler:function(btnName: string){
+    }
+
+    addBtnHandler(btnName: string){
         var btn = cc.find("Canvas/popups/" + btnName);
         this.addClickEvent(btn,this.node,"PopupMgr","onBtnClicked");
-    },
-    
-    addClickEvent:function(node: cc.Node,target: cc.Node,component: string,handler: string){
+    }
+
+    addClickEvent(node: cc.Node,target: cc.Node,component: string,handler: string){
         var eventHandler = new cc.Component.EventHandler();
         eventHandler.target = target;
         eventHandler.component = component;
@@ -77,9 +77,9 @@ cc.Class({
 
         var clickEvents = node.getComponent(cc.Button).clickEvents;
         clickEvents.push(eventHandler);
-    },
-    
-    onBtnClicked:function(event: cc.Event){
+    }
+
+    onBtnClicked(event: cc.Event){
         this.closeAll();
         var btnName = event.target.name;
         if(btnName == "btn_agree"){
@@ -91,26 +91,26 @@ cc.Class({
         else if(btnName == "btn_sqjsfj"){
             cc.vv.net.send("dissolve_request"); 
         }
-    },
-    
-    closeAll:function(){
+    }
+
+    closeAll(){
         this._popuproot!.active = false;
         this._settings!.active = false;
         this._dissolveNotice!.active = false;
-    },
-    
-    showSettings:function(){
+    }
+
+    showSettings(){
         this.closeAll();
         this._popuproot!.active = true;
         this._settings!.active = true;
-    },
-    
-    showDissolveRequest:function(){
+    }
+
+    showDissolveRequest(){
         this.closeAll();
         this._popuproot!.active = true;
-    },
-    
-    showDissolveNotice:function(data: DissolveNoticePush){
+    }
+
+    showDissolveNotice(data: DissolveNoticePush){
         this._endTime = Date.now()/1000 + data.time;
         this._extraInfo = "";
         for(var i = 0; i < data.states.length; ++i){
@@ -126,10 +126,11 @@ cc.Class({
         this.closeAll();
         this._popuproot!.active = true;
         this._dissolveNotice!.active = true;;
-    },
+    }
+
     
     // called every frame, uncomment this function to activate update callback
-    update: function (dt: number) {
+    update(dt: number = 0) {
         if(this._endTime > 0){
             var lastTime = this._endTime - Date.now() / 1000;
             if(lastTime < 0){
@@ -146,6 +147,9 @@ cc.Class({
             
             this._noticeLabel!.string = str + s + "秒后房间将自动解散" + this._extraInfo;
         }
-    },
-});
-export { };
+    }
+}
+
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = PopupMgr;

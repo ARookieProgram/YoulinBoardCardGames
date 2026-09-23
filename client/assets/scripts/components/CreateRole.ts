@@ -1,23 +1,22 @@
-cc.Class({
-    extends: cc.Component,
+const { ccclass, property } = cc._decorator;
 
-    properties: {
-        // 老代码是简写 `inputName: cc.EditBox`：引擎会把它规范化成 { default: null, type: cc.EditBox }
-        // （见引擎 preprocess-class.js 的 getFullFormOfProperty）。这里写成完整写法只是为了在类型层面
-        // 让 `this.inputName` 拿到 EditBox 实例类型，属性的值与运行时行为一字未变。
-        inputName:{ default: null as cc.EditBox | null, type: cc.EditBox },
-        // foo: {
-        //    default: null,
-        //    url: cc.Texture2D,  // optional, default is typeof default
-        //    serializable: true, // optional, default is true
-        //    visible: true,      // optional, default is true
-        //    displayName: 'Foo', // optional
-        //    readonly: false,    // optional, default is false
-        // },
-        // ...
-    },
-    
-    onRandomBtnClicked:function(){
+@ccclass
+export default class CreateRole extends cc.Component {
+    // 老代码是简写 `inputName: cc.EditBox`：引擎会把它规范化成 { default: null, type: cc.EditBox }
+    //（见引擎 preprocess-class.js 的 getFullFormOfProperty）。这里用 @property({type: cc.EditBox}) + 初值 null
+    // 写出同一个元数据，`this.inputName` 的类型与运行时行为一字未变。
+    @property({type: cc.EditBox}) inputName: cc.EditBox | null = null as cc.EditBox | null;
+    // foo: {
+    //    default: null,
+    //    url: cc.Texture2D,  // optional, default is typeof default
+    //    serializable: true, // optional, default is true
+    //    visible: true,      // optional, default is true
+    //    displayName: 'Foo', // optional
+    //    readonly: false,    // optional, default is false
+    // },
+    // ...
+
+    onRandomBtnClicked(){
         var names = [
             "上官",
             "欧阳",
@@ -52,15 +51,15 @@ cc.Class({
         var idx = Math.floor(Math.random() * (names.length - 1));
         var idx2 = Math.floor(Math.random() * (names2.length - 1));
         this.inputName!.string = names[idx] + names2[idx2];
-    },
+    }
 
     // use this for initialization
-    onLoad: function () {
+    onLoad() {
         cc.vv.utils.setFitSreenMode();
         this.onRandomBtnClicked();
-    },
+    }
 
-    onBtnConfirmClicked:function(){
+    onBtnConfirmClicked(){
         var name = this.inputName!.string;
         if(name == ""){
             console.log("invalid name.");
@@ -73,6 +72,8 @@ cc.Class({
     // update: function (dt) {
 
     // },
-});
+}
 
-export { };
+// Creator 的 require(name) 取的是 module.exports；老写法靠 cc._RF.pop() 自动导出 cc.Class 的类，
+// export default 只会写成 exports.default，所以这里显式把类赋给 module.exports。
+module.exports = CreateRole;
