@@ -21,14 +21,17 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
-from game_server import roommgr, tokenmgr, usermgr
+from game_server import robotmgr, roommgr, tokenmgr, usermgr
 from game_server.sio_server import Socket, SocketIOServer
 from utils import crypto, http
 from utils.jscompat import js_parse_int, now_ms
+
+if TYPE_CHECKING:
+    from shared.domain import DissolveRequest
 
 _config: dict[str, Any] | None = None
 _sio: SocketIOServer | None = None
@@ -38,6 +41,46 @@ def _require_config() -> dict[str, Any]:
     if _config is None:
         raise RuntimeError("socket_service.create_server() 尚未调用")
     return _config
+
+
+def _dissolve_notice(dr: DissolveRequest) -> dict[str, Any]:
+    """把解散申请拼成 `dissolve_notice_push` 的载荷（剩余秒数 + 四家状态）。"""
+    return {
+        "time": (dr.endTime - now_ms()) / 1000,
+        "states": dr.states,
+    }
+
+
+def _dissolve_all_agreed(dr: DissolveRequest) -> bool:
+    """四家是不是都同意了（对应原实现的 `do_all_agree` 循环）。"""
+    for state in dr.states:
+        if state is False:
+            return False
+    return True
+
+
+async def _agree_dissolve_for_robots(user_id: int) -> bool:
+    """机器人玩家自动同意解散：返回房间是否因此已经满足"全部同意"。
+
+    单人模式里只有房主一个真人，另外三家是无 socket 的机器人（见 `robotmgr`），
+    它们永远不会发 `dissolve_agree` 上来。所以每收到一次解散申请就先替机器人把票投了：
+    先把四个 `states` 一次广播出去，再让调用方决定要不要立刻 `do_dissolve`——
+    留在一个请求里做，是因为拆成"稍后再问一次"只会让真人多等一轮。
+    """
+    room_id = roommgr.get_user_room(user_id)
+    if room_id is None:
+        return False
+    room_info = roommgr.get_room(room_id)
+    if room_info is None or room_info.dr is None:
+        return False
+
+    if robotmgr.auto_agree_dissolve(room_info) is False:
+        return False
+
+    await usermgr.broacast_in_room(
+        "dissolve_notice_push", _dissolve_notice(room_info.dr), user_id, True
+    )
+    return True
 
 
 def create_server(config: dict[str, Any]) -> SocketIOServer:
@@ -330,32 +373,29 @@ async def _register_handlers(socket: Socket) -> None:
     # 解散房间
     async def on_dissolve_request(data: Any) -> None:
         user_id = socket.userId
-        print(1)
         if user_id is None:
-            print(2)
             return
 
         room_id = roommgr.get_user_room(user_id)
         if room_id is None:
-            print(3)
             return
 
         # 如果游戏未开始，则不可以
         if socket.gameMgr.has_began(room_id) is False:
-            print(4)
             return
 
         ret = socket.gameMgr.dissolve_request(room_id, user_id)
-        if ret is not None:
-            dr = ret.dr
-            ramaing_time = (dr.endTime - now_ms()) / 1000
-            notice_data = {
-                "time": ramaing_time,
-                "states": dr.states,
-            }
-            print(5)
-            await usermgr.broacast_in_room("dissolve_notice_push", notice_data, user_id, True)
-        print(6)
+        if ret is None:
+            return
+
+        await usermgr.broacast_in_room(
+            "dissolve_notice_push", _dissolve_notice(ret.dr), user_id, True
+        )
+
+        # 单人模式：机器人玩家自动同意。三家机器人都投完票就是"全部同意"，
+        # 立刻解散，不用等 `_update()` 的 30 秒超时。
+        if await _agree_dissolve_for_robots(user_id):
+            await socket.gameMgr.do_dissolve(room_id)
 
     async def on_dissolve_agree(data: Any) -> None:
         user_id = socket.userId
@@ -368,23 +408,17 @@ async def _register_handlers(socket: Socket) -> None:
             return
 
         ret = socket.gameMgr.dissolve_agree(room_id, user_id, True)
-        if ret is not None:
-            dr = ret.dr
-            ramaing_time = (dr.endTime - now_ms()) / 1000
-            notice_data = {
-                "time": ramaing_time,
-                "states": dr.states,
-            }
-            await usermgr.broacast_in_room("dissolve_notice_push", notice_data, user_id, True)
+        if ret is None:
+            return
 
-            do_all_agree = True
-            for i in range(len(dr.states)):
-                if dr.states[i] is False:
-                    do_all_agree = False
-                    break
+        await usermgr.broacast_in_room(
+            "dissolve_notice_push", _dissolve_notice(ret.dr), user_id, True
+        )
 
-            if do_all_agree:
-                await socket.gameMgr.do_dissolve(room_id)
+        # 真人 + 机器人的混合票：机器人那几票在 `on_dissolve_request` 时就已经投过了，
+        # 这里只补最后一票，凑齐了同样立即解散。
+        if _dissolve_all_agreed(ret.dr):
+            await socket.gameMgr.do_dissolve(room_id)
 
     async def on_dissolve_reject(data: Any) -> None:
         user_id = socket.userId

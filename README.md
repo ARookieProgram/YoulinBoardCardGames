@@ -317,11 +317,17 @@ ACTION_GANG   = 4   ACTION_HU    = 5   ACTION_ZIMO = 6
 机器人延迟一小段时间后按"能胡就胡 / 能杠就杠 / 能碰就碰 / 先打缺门再打孤张"的确定性策略回调
 gamemgr 的动作函数。
 
+解散房间同样要照顾机器人：解散是"四家投票、全票才生效、否则 30 秒超时"，而机器人不会发
+`dissolve_agree`。所以真人申请解散时，`socket_service.on_dissolve_request` 会先用
+`robotmgr.auto_agree_dissolve` 替机器人座位投同意票——真人房主一申请就是四票全同意、房间立刻解散，
+不用等满 30 秒（真人的 `dissolve_reject` 仍然照常撤销申请）。
+
 > **这是 Python 服务端独有的功能**（`server-python/`）。Node 版 `server/` 没有实现单人模式，
 > 因此目前两套服务端在这一点上不对等；客户端对 Node 版点"单人模式"会拿到 404。
 
 离线证据是 `server-python/tests/test_robot.py`：策略单测 + 四个座位全交给机器人的整局模拟
-（两份 gamemgr × 有无换三张），另有一条"打完一局后机器人保持已准备、第二局开得起来"的回归。
+（两份 gamemgr × 有无换三张），另有"打完一局后机器人保持已准备、第二局开得起来"以及
+"真人申请解散即全票通过并立即解散、真人仍然能否决"的回归。
 
 ---
 

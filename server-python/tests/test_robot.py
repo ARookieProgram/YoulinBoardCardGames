@@ -18,17 +18,19 @@ import importlib
 import pathlib
 import sys
 import unittest
+from typing import Any
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from game_server import mjutils, robotmgr, roommgr, usermgr  # noqa: E402
-from shared.domain import GameSeat, RoomConf, RoomInfo, RoomSeat  # noqa: E402
+from shared.domain import DissolveRequest, GameSeat, RoomConf, RoomInfo, RoomSeat  # noqa: E402
 from tests.test_gamemgr_simulation import (  # noqa: E402
     _install_stubs,
     _make_room,
     _Recorder,
     _speed_up_schedule,
 )
+from utils.jscompat import now_ms  # noqa: E402
 
 PY_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -274,6 +276,251 @@ class RobotFullGameTest(unittest.IsolatedAsyncioTestCase):
         # 真人点了"准备"之后，第二局应当立刻开起来
         await module.set_ready(robot_ids[0])
         self.assertIn(room_id, module._games)  # type: ignore[attr-defined]
+
+
+def _make_single_room(room_id: str = "robotsingle") -> RoomInfo:
+    """一个"1 真人 + 3 机器人"的房间（只填解散流程真正读的字段）。"""
+    room = RoomInfo(
+        uuid="uuid-" + room_id,
+        id=room_id,
+        seats=[RoomSeat(seatIndex=i) for i in range(4)],
+        conf=RoomConf(type="xzdd", single=1),
+    )
+    human_id = 12345
+    room.seats[0].userId = human_id
+    room.seats[0].name = "真人"
+    roommgr.user_location[human_id] = roommgr.UserLocation(roomId=room_id, seatIndex=0)
+    for index in (1, 2, 3):
+        robot_id = robotmgr.allocate_ids(1)[0]
+        robotmgr.register(robot_id)
+        room.seats[index].userId = robot_id
+        room.seats[index].name = robotmgr.robot_name(index - 1)
+        roommgr.user_location[robot_id] = roommgr.UserLocation(roomId=room_id, seatIndex=index)
+    roommgr.rooms[room_id] = room
+    return room
+
+
+class AutoAgreeDissolveTest(unittest.TestCase):
+    """机器人玩家自动同意解散房间。
+
+    解散是"四家投票、全票才生效、否则 30 秒超时"，而机器人没有 socket、
+    永远不会发 `dissolve_agree`。所以房间里的机器人必须由服务端替它们投同意票，
+    否则真人房主申请解散后客户端那三个"[待确认]"会白挂 30 秒。
+    """
+
+    def setUp(self) -> None:
+        roommgr.reset()
+        robotmgr.reset()
+
+    def test_robots_vote_yes_and_the_all_agree_flag_flips(self) -> None:
+        room = _make_single_room()
+        # 房主自己那一票在 `dissolve_request` 里已经投了（states[0] = True）
+        room.dr = DissolveRequest(endTime=now_ms() + 30000, states=[True, False, False, False])
+
+        self.assertTrue(
+            robotmgr.auto_agree_dissolve(room),
+            "机器人没有全部同意，解散仍然要靠超时",
+        )
+        self.assertEqual(room.dr.states, [True, True, True, True])
+
+    def test_human_seat_is_never_voted_for(self) -> None:
+        """真人（0 号位）那一票必须留给真人自己——包括真人自己还没投的时候。"""
+        room = _make_single_room()
+        room.dr = DissolveRequest(endTime=now_ms() + 30000, states=[False, False, False, False])
+
+        robotmgr.auto_agree_dissolve(room)
+        self.assertFalse(room.dr.states[0], "服务端替真人投了票")
+
+    def test_a_room_without_robots_stays_pending(self) -> None:
+        room = RoomInfo(
+            uuid="uuid-plain",
+            id="plain",
+            seats=[RoomSeat(userId=100 + i, seatIndex=i) for i in range(4)],
+        )
+        roommgr.rooms[room.id] = room
+        room.dr = DissolveRequest(endTime=now_ms() + 30000, states=[True, False, False, False])
+
+        self.assertFalse(robotmgr.auto_agree_dissolve(room))
+        self.assertEqual(room.dr.states, [True, False, False, False])
+
+    def test_no_dissolve_request_is_a_noop(self) -> None:
+        room = _make_single_room()
+        self.assertFalse(robotmgr.auto_agree_dissolve(room))
+
+
+class _FakeGameMgr:
+    """只实现 `socket_service` 解散分支用到的 Gamemanager 方法。
+
+    四个座位没有手牌、开不了真牌局，所以这里不跑真 gamemgr；
+    `dissolve_request` / `dissolve_agree` 照抄两份 gamemgr 里同名的几行
+    （它们逐字相同），保证"票数怎么记"这件事和线上一致。
+    """
+
+    def __init__(self) -> None:
+        self.dissolved = 0
+
+    def has_began(self, room_id: str) -> bool:
+        return True
+
+    async def do_dissolve(self, room_id: str) -> None:
+        self.dissolved += 1
+
+    def dissolve_request(self, room_id: str, user_id: int) -> RoomInfo | None:
+        room_info = roommgr.get_room(room_id)
+        if room_info is None or room_info.dr is not None:
+            return None
+        seat_index = roommgr.get_user_seat(user_id)
+        if seat_index is None:
+            return None
+        room_info.dr = DissolveRequest(endTime=now_ms() + 30000, states=[False, False, False, False])
+        room_info.dr.states[seat_index] = True
+        return room_info
+
+    def dissolve_agree(self, room_id: str, user_id: int, agree: bool) -> RoomInfo | None:
+        room_info = roommgr.get_room(room_id)
+        if room_info is None or room_info.dr is None:
+            return None
+        seat_index = roommgr.get_user_seat(user_id)
+        if seat_index is None:
+            return None
+        if agree:
+            room_info.dr.states[seat_index] = True
+        else:
+            room_info.dr = None
+        return room_info
+
+
+class _FakeSocket:
+    """`socket_service._register_handlers` 需要的最小 socket：只记录注册了哪些处理器。
+
+    真的 `sio_server.Socket` 要一个 `SocketIOServer` 和事件循环里的发送队列，
+    这里用不上——解散处理器全程只读 `userId` / `gameMgr`，推送走 `usermgr` 的桩。
+    """
+
+    def __init__(self, user_id: int, game_mgr: Any) -> None:
+        self.userId = user_id
+        self.gameMgr = game_mgr
+        self.handlers: dict[str, Any] = {}
+
+    def on(self, event: str, handler: Any) -> Any:
+        self.handlers[event] = handler
+        return handler
+
+
+class DissolveHandlerTest(unittest.IsolatedAsyncioTestCase):
+    """直接跑 `socket_service` 里注册的解散处理器，验证"申请即解散"。"""
+
+    def setUp(self) -> None:
+        roommgr.reset()
+        robotmgr.reset()
+        robotmgr.set_think_time(0, 0)
+
+    async def _handlers(self, game_mgr: _FakeGameMgr, user_id: int) -> tuple[Any, _Recorder]:
+        recorder = _Recorder()
+        _install_stubs(recorder)
+        socket_service = importlib.import_module("game_server.socket_service")
+
+        socket = _FakeSocket(user_id, game_mgr)
+        await socket_service._register_handlers(socket)
+        return socket.handlers, recorder
+
+    async def test_dissolve_request_from_the_human_dissolves_at_once(self) -> None:
+        room = _make_single_room()
+        human_id = room.seats[0].userId
+        game_mgr = _FakeGameMgr()
+        handlers, recorder = await self._handlers(game_mgr, human_id)
+
+        await handlers["dissolve_request"](None)
+
+        self.assertEqual(
+            game_mgr.dissolved,
+            1,
+            "机器人已全部同意，解散却没有立即生效（只能等 30 秒超时）",
+        )
+        self.assertIsNotNone(room.dr, "解散申请对象被提前清掉，广播载荷会读空")
+        self.assertEqual(room.dr.states, [True, True, True, True])
+
+        notices = [
+            payload for uid, event, payload in recorder.pushes if event == "dissolve_notice_push"
+        ]
+        self.assertTrue(notices, "解散申请没有广播 dissolve_notice_push")
+        # 最后一次广播必须是"四家已同意"的最终态，客户端才画得出全票通过
+        self.assertEqual(notices[-1]["states"], [True, True, True, True])
+        self.assertLess(notices[-1]["time"], 31)
+
+    async def test_human_reject_still_cancels_the_room_dissolve(self) -> None:
+        """真人反悔点"不同意"仍然有效：撤销申请，房间继续打。"""
+        room = _make_single_room()
+        human_id = room.seats[0].userId
+        game_mgr = _FakeGameMgr()
+        handlers, recorder = await self._handlers(game_mgr, human_id)
+
+        # 申请一进来就已经全票通过、房间散了；再摆一个"还没投完"的申请验证取消分支本身
+        room.dr = DissolveRequest(endTime=now_ms() + 30000, states=[False, True, True, True])
+        await handlers["dissolve_reject"](None)
+
+        self.assertIsNone(room.dr, "拒绝后解散申请没有被撤销")
+        self.assertEqual(game_mgr.dissolved, 0)
+        self.assertIn("dissolve_cancel_push", recorder.all_events())
+
+    async def test_dissolve_request_without_a_started_game_is_ignored(self) -> None:
+        room = _make_single_room()
+        human_id = room.seats[0].userId
+        game_mgr = _FakeGameMgr()
+        game_mgr.has_began = lambda room_id: False  # type: ignore[method-assign]
+        handlers, recorder = await self._handlers(game_mgr, human_id)
+
+        await handlers["dissolve_request"](None)
+
+        self.assertIsNone(room.dr, "未开局就不该受理解散申请")
+        self.assertEqual(game_mgr.dissolved, 0)
+        self.assertNotIn("dissolve_notice_push", recorder.all_events())
+
+    async def test_dissolve_on_a_live_robot_game_reaches_game_over(self) -> None:
+        """牌局真的开着的时候，解散请求要能通过真 gamemgr 走到 `do_dissolve`。
+
+        上面几条用假 gamemgr 验证"票怎么投"；这一条补另一半：`do_dissolve` →
+        `do_game_over(..., force_end=True)` 在**真牌局**上也得把这局收干净，
+        不能因为 `dissolve_request` 是在 `begin` 之后调的就抛异常。
+        """
+        module = importlib.import_module("game_server.gamemgr_xzdd")
+        _speed_up_schedule(module)
+
+        recorder = _Recorder()
+        _install_stubs(recorder)
+        roommgr.reset()
+        robotmgr.reset()
+        robotmgr.set_think_time(0, 0)
+        module._games.clear()  # type: ignore[attr-defined]
+        module._game_seats_of_users.clear()  # type: ignore[attr-defined]
+
+        robot_ids = robotmgr.allocate_ids(4)
+        for user_id in robot_ids:
+            robotmgr.register(user_id)
+
+        room_id = "robotdissolve"
+        conf = RoomConf(type="xzdd", baseScore=1, maxGames=4, creator=robot_ids[0], single=1)
+        room = _make_room(room_id, conf, robot_ids)
+
+        await module.begin(room_id)
+        self.assertIn(room_id, module._games, "牌局没有开起来")  # type: ignore[attr-defined]
+        # 让换三张/定缺那几个钩子先跑起来，再申请解散，避免在建房瞬间就散掉
+        for _ in range(200):
+            await asyncio.sleep(0)
+        recorder.pushes.clear()
+
+        socket_service = importlib.import_module("game_server.socket_service")
+        socket = _FakeSocket(robot_ids[0], module)
+        await socket_service._register_handlers(socket)
+        await socket.handlers["dissolve_request"](None)
+
+        self.assertNotIn(
+            room_id,
+            module._games,  # type: ignore[attr-defined]
+            "全票通过后牌局没有被收掉",
+        )
+        self.assertIn("game_over_push", recorder.all_events(), "解散没有走完结算")
+        self.assertIsNotNone(room.dr)
 
 
 if __name__ == "__main__":

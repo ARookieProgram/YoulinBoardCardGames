@@ -205,6 +205,11 @@ if game.conf.menqing:           # 房间开门清时才赋值，值可能是 Fal
   True（`set_ready` 的"四人齐"判断要用），推送则因查不到连接被丢弃。
 - gamemgr 侧的钩子只有四处：`send_operations`（覆盖出牌与碰杠胡的响应）、`begin`（开局换牌/定缺）、
   `huan_san_zhang`（换牌结束转定缺）、`peng`（碰完出牌）。两份 gamemgr 都要改。
+- **解散房间要替机器人投票**：解散是"四家投票、全票才生效、否则 30 秒超时"，机器人不会发
+  `dissolve_agree`。`socket_service.on_dissolve_request` 在广播 `dissolve_notice_push` 之后调用
+  `robotmgr.auto_agree_dissolve(room_info)` 把机器人座位置为已同意；四票齐了就立刻
+  `do_dissolve`，不等超时。这份逻辑在 `socket_service` 里（不在 gamemgr），
+  所以两份 gamemgr 都不需要为此改动；真人的 `dissolve_reject` 撤销分支保持原样。
 - `do_game_over` 里机器人保持"已准备"，否则第一局之后 `set_ready` 永远差三家、开不了第二局。
 - `conf.single` **不落库**（`utils/db._conf_to_wire` 的键集与 Node 版一致），所以进程重启后
   从库里还原的单人房会丢掉这个标记——单人房本来就是新建即打完的，这一点不影响正常流程。

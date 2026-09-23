@@ -30,10 +30,13 @@ from __future__ import annotations
 import asyncio
 import random
 from dataclasses import dataclass
-from typing import Any, Callable, Coroutine
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 from game_server import mjutils
 from shared.domain import GameSeat, GameState
+
+if TYPE_CHECKING:
+    from shared.domain import RoomInfo
 
 #: gamemgr 的动作函数（都是协程），由各份 gamemgr 在文件末尾组装成 `RobotActions` 传进来。
 RobotAction = Callable[..., Coroutine[Any, Any, None]]
@@ -113,6 +116,30 @@ def reset() -> None:
     _robots.clear()
     _pending.clear()
     _next_robot_id = ROBOT_ID_BASE
+
+
+def auto_agree_dissolve(room_info: RoomInfo) -> bool:
+    """让房间里所有机器人座位立刻同意当前的解散申请。
+
+    机器人没有 socket，`dissolve_request` 之后**不会有任何 `dissolve_agree` 上来**：
+    真人是房主时，四个 `states` 永远停在三个 `False` 上，解散只能靠
+    `gamemgr._update()` 熬满 30 秒超时才生效。这里把机器人座位直接置为已同意，
+    把"机器人玩家自动同意"变成一次即时判断。
+
+    只在 `room_info.dr` 存在时改写；返回**是否四家都已同意**——调用方据此决定
+    要不要马上走 `do_dissolve`（不能再等超时，否则客户端那三个"[待确认]"会白挂 30 秒）。
+    """
+    dr = room_info.dr
+    if dr is None:
+        return False
+
+    for seat in room_info.seats:
+        if seat.seatIndex >= len(dr.states):
+            continue
+        if is_robot(seat.userId):
+            dr.states[seat.seatIndex] = True
+
+    return all(dr.states)
 
 
 # ---------------------------------------------------------------------------
@@ -339,6 +366,7 @@ __all__ = [
     "ROBOT_NAMES",
     "RobotActions",
     "allocate_ids",
+    "auto_agree_dissolve",
     "choose_discard",
     "choose_gang",
     "choose_huan_pai",
