@@ -17,6 +17,15 @@ export default class AudioMgr extends cc.Component {
 
     @property bgmAudioID: number = -1;
 
+    /** 已加载的音频资源，key 是 `resources/sounds/` 下的相对路径（不带扩展名）。 */
+    _clips: { [path: string]: cc.AudioClip } = {};
+
+    /** 正在加载中的音频：同一段音频同时被请求多次时只发一次加载。 */
+    _loading: { [path: string]: ((clip: cc.AudioClip) => void)[] } = {};
+
+    /** 后台音乐的请求序号：切 BGM 时让还在加载中的旧请求作废。 */
+    _bgmToken: number = 0;
+
     // use this for initialization
     init() {
         var t = cc.sys.localStorage.getItem("bgmVolume");
@@ -47,20 +56,73 @@ export default class AudioMgr extends cc.Component {
         return cc.url.raw("resources/sounds/" + url);
     }
 
-    playBGM(url: string){
-        var audioUrl = this.getUrl(url);
-        console.log(audioUrl);
-        if(this.bgmAudioID >= 0){
-            cc.audioEngine.stop(this.bgmAudioID);
+    /** `cc.resources.load` 要的是不带扩展名的相对路径，例如 `sounds/bgMain`。 */
+    getClipPath(url: string){
+        return "sounds/" + url.replace(/\.(mp3|ogg|wav|m4a)$/i, "");
+    }
+
+    /**
+     * 按需把 `resources/sounds/` 下的音频加载成 AudioClip 再回调。
+     *
+     * 老代码把 `cc.url.raw(...)` 得到的 **URL 字符串** 直接交给 `cc.audioEngine.play`，
+     * 那是 Creator 1.x 的用法；2.4 的 `play` 要求 `clip instanceof cc.AudioClip`
+     *（引擎 `cocos2d/audio/CCAudioEngine.js` 的 `play`，否则只打印
+     * "Wrong type of AudioClip." 就返回），所以这里先把资源加载出来。
+     * 同一个文件只加载一次，之后走缓存、回调是同步的。
+     */
+    getClip(url: string, callback: (clip: cc.AudioClip) => void){
+        var path = this.getClipPath(url);
+        var cached = this._clips[path];
+        if(cached != null){
+            callback(cached);
+            return;
         }
-        this.bgmAudioID = cc.audioEngine.play(audioUrl,true,this.bgmVolume);
+        var waiting = this._loading[path];
+        if(waiting != null){
+            waiting.push(callback);
+            return;
+        }
+        this._loading[path] = [callback];
+        var self = this;
+        cc.resources.load(path, cc.AudioClip, function(err: Error | null, clip: cc.AudioClip){
+            var callbacks = self._loading[path];
+            delete self._loading[path];
+            if(err != null || clip == null){
+                // 加载失败只丢掉这一段音频，不能顺带把正在播的 BGM 状态弄坏（老代码会把
+                // undefined 赋给 bgmAudioID）。
+                console.log("load audio failed:" + path + "," + err);
+                return;
+            }
+            self._clips[path] = clip;
+            for(var i = 0; i < callbacks.length; ++i){
+                callbacks[i](clip);
+            }
+        });
+    }
+
+    playBGM(url: string){
+        var self = this;
+        var token = ++this._bgmToken;
+        this.getClip(url, function(clip: cc.AudioClip){
+            // 加载期间又切了别的 BGM：这次请求作废，免得后到的旧请求把新的顶掉。
+            if(token !== self._bgmToken){
+                return;
+            }
+            if(self.bgmAudioID >= 0){
+                cc.audioEngine.stop(self.bgmAudioID);
+            }
+            self.bgmAudioID = cc.audioEngine.play(clip,true,self.bgmVolume);
+        });
     }
 
     playSFX(url: string){
-        var audioUrl = this.getUrl(url);
-        if(this.sfxVolume > 0){
-            var audioId = cc.audioEngine.play(audioUrl,false,this.sfxVolume);    
+        if(this.sfxVolume <= 0){
+            return;
         }
+        var self = this;
+        this.getClip(url, function(clip: cc.AudioClip){
+            cc.audioEngine.play(clip,false,self.sfxVolume);
+        });
     }
 
     setSFXVolume(v: number){

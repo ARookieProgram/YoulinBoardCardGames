@@ -76,6 +76,22 @@ declare namespace cc {
         ): void;
     }
 
+    /**
+     * `cc.resources`：内置的 `assets/resources/` bundle（Creator 2.4 的 `cc.AssetManager.Bundle`）。
+     * `creator.d.ts` 完全没有它，而动态加载音频只能用这个：`cc.loader.loadRes` 是废弃 API，
+     * 回调形参在声明里还是 `any`（见 `AudioMgr.getClip`）。
+     *
+     * 泛型上界写 `CCObject` 而不是引擎源码里的 `Asset`：这份 `creator.d.ts` 里
+     * `AudioClip extends RawAsset`，而 `RawAsset` 并不继承 `Asset`，约束成 `Asset` 会拒绝 `cc.AudioClip`。
+     */
+    export namespace resources {
+        function load<T extends CCObject>(
+            path: string,
+            type: { prototype: T },
+            onComplete: (error: Error | null, asset: T) => void,
+        ): void;
+    }
+
     /** `cc.eventManager`：`Utils.addEscEvent` 用它注册键盘监听。 */
     export namespace eventManager {
         function addListener(listener: unknown, nodeOrPriority: Node | number): EventListener;
@@ -92,9 +108,16 @@ declare namespace cc {
         end(): void;
     }
 
-    /** `cc.audioEngine` 是单例，这些方法在 `creator.d.ts` 的 `class audioEngine` 里完全缺失。 */
+    /**
+     * `cc.audioEngine` 是单例，这些方法在 `creator.d.ts` 的 `class audioEngine` 里完全缺失。
+     *
+     * `play` 的 `clip` 必须是 **`cc.AudioClip` 资源**，不能是 URL 字符串：引擎
+     * `cocos2d/audio/CCAudioEngine.js` 的 `play` 第一句就是 `if (!(clip instanceof AudioClip))
+     * return cc.error('Wrong type of AudioClip.')`。这里以前写成 `string`（对应老代码把
+     * `cc.url.raw(...)` 直接传进去的 Creator 1.x 用法），正好把这个运行时错误藏过了类型检查。
+     */
     namespace audioEngine {
-        var play: (clip: string, loop: boolean, volume: number) => number;
+        var play: (clip: AudioClip, loop: boolean, volume: number) => number;
         var stop: (audioID: number) => void;
         var pause: (audioID: number) => void;
         var resume: (audioID: number) => void;
