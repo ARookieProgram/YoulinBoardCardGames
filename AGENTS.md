@@ -15,6 +15,7 @@
 | --- | --- | --- |
 | `repo:client/` | Cocos Creator **2.4.15**（`cocos2d-html5`） | 客户端。`assets/scripts/` 下是手写的 **TypeScript**（ES6 `class` + `cc._decorator` 的 `@ccclass` / `@property`，由 Creator 自己编译）；`.fire` 场景由 Creator 编辑器产出 |
 | `repo:server/` | Node.js + **TypeScript（`strict: true`，`tsc` 编译到 `server/dist/`）** + Express + Socket.IO + MySQL（`mysql2` 驱动） | 服务端。源码是 `.ts`，跑的是编译产物；三个独立进程：账号服 / 大厅服 / 游戏服 |
+| `repo:server-python/` | **Python 3.14** + `asyncio` + `aiohttp` + `python-socketio` 协议层（自研）+ `aiomysql` | 服务端的 Python 重写版。同样的三个进程、同样的 6 个端口、同样的 HTTP 路由 / md5 签名 / Socket.IO 事件名 / MySQL schema，**与现有客户端和数据库完全兼容**；契约见 `repo:server-python/AGENTS.md` |
 
 **客户端源码是 TypeScript，组件写法已经统一到 ES6 `class` + `cc._decorator` 装饰器**
 （`@ccclass` / `@property`，见 `repo:client/AGENTS.md` §2），没有构建步骤、没有打包器：
@@ -53,6 +54,12 @@ client (Cocos Creator)
 
 「账号服」是一个进程两个 HTTP 服务：`account_server.ts`（:9000）与 `dealer_api.ts`（:12581），
 由 `repo:server/account_server/app.ts` 同时拉起。
+
+**`repo:server-python/` 是同一套架构的 Python 3.14 重写版**：三个进程、6 个端口、HTTP 路由、
+md5 签名、Socket.IO 事件名与 MySQL schema 都与 Node 版逐字对应，客户端不需要改任何一行。
+两者的差异（并发模型换成 `async`/`await`、错误不再杀死进程、以及刻意保留的历史 bug）逐条记在
+`repo:server-python/AGENTS.md` §4。入口是 `python -m <进程>.app ../configs_mac.py`，
+一键启停用 `repo:server-python/start_all_mac.sh`（不要在同一个端口上同时起两套）。
 
 三个进程都通过命令行参数接收配置文件：`node dist/game_server/app.js ../configs_mac.js`
 （跑之前先 `cd server && yarn install --frozen-lockfile && yarn build`，入口是 **编译产物**）。
@@ -134,23 +141,24 @@ node dist/game_server/app.js ../configs_mac.js   # 或 yarn game
 这是本仓库唯一的"完成"判据。门禁自身依赖为零，无需 `npm install`；唯一例外是 `types` 检查的
 **`tsc` 那一半**——它要 `server/node_modules/typescript`（`cd server && yarn install` 才有），
 没装时这半显示 **skipped** 并说明原因，但同一检查里的 **no-any 审计照跑**（纯文本扫描，
-零依赖），其余五项也照跑（`client/` 与 `server/` 共用这一个编译器，客户端不额外引依赖，
+零依赖），其余六项也照跑（`client/` 与 `server/` 共用这一个编译器，客户端不额外引依赖，
 见 `repo:server/AGENTS.md` §1.1）。
 
 ```bash
-npm run verify                 # 跑全部六项检查（提交前必须全绿）
+npm run verify                 # 跑全部七项检查（提交前必须全绿）
 npm run verify -- --verbose    # 打印每个被检查的文件 / 断言
 npm run verify -- --json       # 机器可读结果
 npm run verify:list            # 列出检查项名称
-npm run verify -- --only=types # 只跑类型检查（六项都可这样单跑）
+npm run verify -- --only=types # 只跑类型检查（七项都可这样单跑）
 npm run check:syntax           # 只跑语法
 npm run check:protocol         # 只跑协议一致性
 npm run check:smoke            # 只跑行为冒烟
+npm run check:python           # 只跑 Python 服务端的语法 + 离线测试
 npm run check:harness          # 只校验本工程自身（AGENTS.md 与 skills）
 npm run test:tools             # 校验检查器自身
 ```
 
-六项检查（顺序固定为 `syntax` → `types` → `harness` → `protocol` → `smoke` → `selftest`）
+七项检查（顺序固定为 `syntax` → `types` → `harness` → `protocol` → `smoke` → `python` → `selftest`）
 分别回答：
 
 | 检查 | 回答的问题 |
@@ -160,6 +168,7 @@ npm run test:tools             # 校验检查器自身
 | `harness` | 本文档与 `.dsh/skills/` 是否能被 Harness 真正发现、格式是否合法 |
 | `protocol` | Socket.IO 事件词汇表是否两端对齐 |
 | `smoke` | 听牌/胡牌判定、花色分类、MD5 与 Base64（**不含算番**，番值无离线判据） |
+| `python` | `server-python/` 是否可解析、离线测试是否全绿：① **无依赖**地 `ast.parse` 每一个一方 `.py`（只解析不执行——import `game_server.app` 会去绑端口）；② 有可用解释器（优先 `server-python/.venv/bin/python`）时跑 `tests/` 的 stdlib unittest，覆盖听牌判定、md5/Base64 向量、跨实现的协议事件名与签名参考向量、以及两份 gamemgr 的**整局四人牌模拟**。缺依赖时报 skipped 并说明原因，不会装作通过 |
 | `selftest` | 检查器自身的解析逻辑是否被改动破坏 |
 
 `smoke` 加载服务端模块时**优先直接 require `.ts` 源码**（Node 原生跑 TS；更老的 Node 退回
@@ -173,6 +182,9 @@ npm run test:tools             # 校验检查器自身
 ## 5. 具体做法
 
 - **改玩法逻辑**：先读 `repo:docs/ai-native/game-rules.md`；两份 `gamemgr_*` 同步；跑 `npm run verify`。
+- **改 Python 服务端**（`repo:server-python/`）：同一份玩法规则、同一套协议，改动要与
+  `repo:server/` 对应文件**成对**做；跑 `npm run check:python`（语法 + 离线测试，含整局模拟），
+  动了 `sio_server.py` 或事件名还要按 `repo:server-python/AGENTS.md` §5.2 用 vendored 客户端联调。
 - **加协议事件**：服务端用 `userMgr.sendMsg` / `userMgr.broacastInRoom`，客户端用
   `cc.vv.net.addHandler`，两侧同名；跑 `npm run check:protocol`。
 - **改数据库**：SQL 权威定义在 `repo:server/sql/db_babykylin.sql`；`repo:server/utils/db.ts` 是唯一
@@ -194,7 +206,7 @@ npm run test:tools             # 校验检查器自身
 
 | 载体 | 位置 | 加载时机 |
 | --- | --- | --- |
-| 指令文件 | 本文件、`repo:client/AGENTS.md`、`repo:server/AGENTS.md` | 项目根到工作目录逐层叠加；**另外，访问某目录下的文件时，该目录的指令文件也会被补加载** |
+| 指令文件 | 本文件、`repo:client/AGENTS.md`、`repo:server/AGENTS.md`、`repo:server-python/AGENTS.md` | 项目根到工作目录逐层叠加；**另外，访问某目录下的文件时，该目录的指令文件也会被补加载** |
 | 私有覆盖 | `AGENTS.local.md`（同目录） | 叠加在同一目录的 `AGENTS.md` 之上，**不提交**（已 gitignore） |
 | 项目技能 | `repo:.dsh/skills/<name>/SKILL.md` | 由 `description` 匹配任务后按需加载 |
 
