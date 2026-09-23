@@ -1,0 +1,20 @@
+{
+  "name": "babykylin-scmj-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "幼麟四川麻将服务端：账号服 / 大厅服 / 游戏服三个 Node 进程，依赖用 yarn 管理（yarn.lock 为准）。",
+  "packageManager": "yarn@1.22.22",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "express": "^4.14.0",
+    "fibers": "1.0.15",
+    "log4js": "^1.0.1",
+    "mysql": "^2.11.1",
+    "socket.io": "^1.4.6"
+  },
+  "scripts": {
+    "account": "node account_server/app.js ../configs_mac.js",
+    "hall": "node hall_server/app.js ../configs_mac.js",
+    "game": "node game_server/app.js ../configs_mac.js"
+  }
+}

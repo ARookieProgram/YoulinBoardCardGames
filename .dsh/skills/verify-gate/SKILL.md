@@ -6,7 +6,8 @@ description: How to run, read, and extend this repository's dependency-free veri
 # 验证门禁的使用与扩展
 
 本仓库的"完成"定义是 **`npm run verify` 全绿**。这是唯一不依赖真实运行时、不依赖
-`npm install` 的客观证据，所有改动都必须过它。
+`npm install` 的客观证据，所有改动都必须过它。（服务端第三方位依赖另由 `repo:server/yarn.lock`
+管理，门禁按目录名跳过 `node_modules`，两者互不影响。）
 
 ## 什么时候用
 

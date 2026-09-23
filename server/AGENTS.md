@@ -10,13 +10,14 @@
 server/
 ├─ configs_mac.js / configs_win.js   ← 唯一配置来源（函数式导出，两个平台各一份）
 ├─ start_all.sh / start_all_mac.sh   ← nohup 方式拉起三个进程
+├─ package.json / yarn.lock          ← 依赖清单与锁文件（yarn 1.x 是唯一依赖管理方式）
 ├─ account_server/                   ← 账号服 :9000，含 dealer_api :12581
 ├─ hall_server/                      ← 大厅服 :9001（客户端）、:9002（游戏服上报）
 ├─ game_server/                      ← 游戏服 :10000（Socket.IO）、:9003（HTTP）
 ├─ utils/                            ← db.js / http.js / crypto.js 共享层
 ├─ sql/db_babykylin.sql              ← 建表与初始数据（权威 schema）
 ├─ tests/                            ← 2016 年的手工脚本，**不是自动化测试**
-└─ node_modules/                     ← 已提交的依赖
+└─ node_modules/                     ← 安装产物，**不提交**（server/.gitignore 已忽略）
 ```
 
 每个进程入口都通过 `process.argv[2]` 读取配置文件：
@@ -27,6 +28,37 @@ node game_server/app.js ../configs_mac.js
 
 **`configs_mac.js` 与 `configs_win.js` 必须同步修改**，并且注意 `configs_mac.js` 带有 BOM
 （首行是 `\ufeffvar HALL_IP`），编辑时不要把它弄丢。
+
+### 1.1 依赖管理：yarn 1.x
+
+服务端依赖用 **yarn** 管理，`repo:server/package.json` 声明、`repo:server/yarn.lock` 锁定：
+
+```bash
+cd server
+yarn install --frozen-lockfile   # 按锁文件安装（CI / 换机时用这个）
+yarn install                     # 改了依赖才用；会更新 yarn.lock
+yarn add <pkg>                   # 新增依赖，不要手改 package.json 后不更新锁文件
+```
+
+- **`node_modules` 不再提交**（历史上曾把整个目录提交进 git），由 `repo:server/.gitignore` 忽略。
+  锁文件才是唯一依据；`package-lock.json` 也已被忽略，不要把它提交回来。
+- 直接依赖只有 5 个：`express`、`fibers`、`log4js`、`mysql`、`socket.io`。
+  代码里实际 `require` 的是前 4 个加 `socket.io`；**`log4js` 目前没有任何引用**，
+  仅为历史遗留而保留声明。
+- 锁文件里是 yarn 解析出的版本，与 2016 年那套 node_modules 里的版本**不同**
+  （express 4.14.0 → 4.22.x、socket.io 1.4.6 → 1.7.x、mysql 2.11.1 → 2.18.x、
+  log4js 1.0.1 → 1.1.x）。这四个包在 Node 24 上 `require` 与建 Express app 均已实测通过；
+  但**整套服务没有运行时验证**——游戏服/大厅服会先加载 `fibers`，账号服直接依赖它，
+  在当前 Node 上 `require('fibers')` 就抛 "Missing binary"（§7.1）。
+- `yarn install` 默认会执行 `fibers` 的 install 脚本（`node build.js`）去编译原生扩展。
+  当前 Node 上这一步不会成功（fibers 1.0.15 只支持到 node 8 左右）；
+  用 `--ignore-scripts` 可以只装 JS 依赖，但账号服依然无法启动。
+- 锁文件里的 `resolved` 统一指向 `https://registry.npmjs.org`。
+  若你本机配了国内镜像，请显式指定仓库再更新锁文件，否则会把镜像地址写进锁文件：
+  `yarn install --registry https://registry.npmjs.org`
+
+`package.json` 里还提供了三个进程的启动脚本（等价于 `node app.js ../configs_mac.js`）：
+`yarn account` / `yarn hall` / `yarn game`；`start_all*.sh` 与 `*.bat` 保持原先直接 `node` 的写法不变。
 
 ---
 

@@ -1,0 +1,15 @@
+# 服务端依赖改由 yarn 管理：锁文件 server/yarn.lock 是唯一依据，
+# node_modules 不再提交（历史上曾直接提交整个目录）。
+node_modules/
+
+# yarn / npm 的本地状态与缓存
+.yarn/
+.pnp.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# 运行期输出
+nohup.out
+*.log

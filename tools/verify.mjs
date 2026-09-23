@@ -3,9 +3,10 @@
  * The verification gate for this repository.
  *
  * Every change — by a human or an AI agent — is expected to pass this before it
- * is considered done. It is dependency-free by design: the project's
- * `node_modules` are committed and cannot be reinstalled reliably, so a gate that
- * needed `npm install` would be a gate nobody runs.
+ * is considered done. It is dependency-free by design: the gate itself needs no
+ * `npm install`, and the server's `node_modules` (installed from
+ * `server/yarn.lock`) are skipped by name rather than read, so a gate that runs
+ * anywhere is a gate everyone runs.
  *
  * Usage:
  *   node tools/verify.mjs              run every check

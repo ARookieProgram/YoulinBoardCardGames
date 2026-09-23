@@ -7,7 +7,9 @@
  * error is a guaranteed runtime failure and is the cheapest possible gate.
  *
  * This module deliberately avoids external dependencies so it runs with no
- * `npm install` step, matching a repository whose `node_modules` are committed.
+ * `npm install` step. Third-party trees (`node_modules`, the Cocos Creator
+ * `library`/`temp` output, vendored client libraries) are skipped by name, so
+ * the gate does not care how the server's own dependencies are installed.
  */
 
 import { readdir, stat } from "node:fs/promises";

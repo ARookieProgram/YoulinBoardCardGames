@@ -92,7 +92,8 @@ if(roomInfo.conf.type == "xlch"){ roomInfo.gameMgr = require("./gamemgr_xlch"); 
 
 ## 4. 验证门禁：`npm run verify`
 
-这是本仓库唯一的"完成"判据。依赖为零，无需 `npm install`。
+这是本仓库唯一的"完成"判据。门禁自身依赖为零，无需 `npm install`（服务端依赖另由
+`repo:server/yarn.lock` 管理，与门禁无关，见 `repo:server/AGENTS.md` §1.1）。
 
 ```bash
 npm run verify                 # 跑全部五项检查（提交前必须全绿）
