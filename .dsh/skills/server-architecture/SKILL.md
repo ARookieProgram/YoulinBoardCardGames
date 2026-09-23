@@ -37,10 +37,11 @@ description: The Node.js server trio in this project - account/hall/game process
 | `repo:server/game_server/tokenmgr.js` | 房间登录 token 的生成与有效期校验 |
 | `repo:server/hall_server/client_service.js` | 面向客户端的 HTTP 接口 |
 | `repo:server/hall_server/room_service.js` | 向游戏服发起 HTTP 调用、维护房间登记 |
-| `repo:server/account_server/account_server.js` | 账号注册/登录（依赖 `fibers`） |
+| `repo:server/account_server/account_server.js` | 账号注册/登录（`/image` 用 `http.getRaw` 代理图片） |
 | `repo:server/account_server/dealer_api.js` | 渠道/代理查询接口 |
-| `repo:server/utils/db.js` | **唯一** SQL 访问层 |
-| `repo:server/utils/http.js` | 统一 JSON 响应出口 `send()`，也依赖 `fibers` |
+| `repo:server/utils/db.js` | **唯一** SQL 访问层（驱动是 `mysql2`） |
+| `repo:server/utils/http.js` | 统一 JSON 响应出口 `send()`，另有 `get` / `get2` / `getRaw` |
+| `repo:server/utils/startup.js` | 启动横幅：所有端口 listening 后才报"启动成功"，含数据库自检 |
 | `repo:server/utils/crypto.js` | `md5` / `toBase64` / `fromBase64` |
 
 ## 2. 登录与进房链路
@@ -112,10 +113,16 @@ else                       { roomInfo.gameMgr = require("./gamemgr_xzdd"); }
 
 ## 6. 约束与验证
 
-- **无法在本机启动服务**：账号服 `require('fibers')`（原生模块缺失），`db.js` 需要真实 MySQL。
-  不要用"能启动"当作验证手段。
+- **服务端已经能在本机启动**（`fibers` 已移除、驱动换成 `mysql2`，见 `repo:server/AGENTS.md` §1.1），
+  所以"起一次看看"是有效手段：每个进程会打印启动横幅，所有端口真正 listening 才显示"启动成功"，
+  端口被占用会明确报错并以退出码 1 结束。只有 DB 路径（注册/登录/建房）需要真实 MySQL。
+- 起停三个进程优先用 `repo:server/start_all_mac.sh`：
+  `./start_all_mac.sh`（一键起 + 状态表）、`stop`、`restart`、`status`、`logs <名字>`。
+  它从配置文件读端口、把 PID 记在 `.run/pids`、日志分进程写 `logs/<名字>.log`，
+  状态表会标出端口是 `[监听中]` / `[未监听]` / `[被占用]`（被别人占着时会拒绝启动并报 PID）。
+  细节见 `repo:server/AGENTS.md` §1.2。
 - `repo:server/tests/` 下是 2016 年的手工脚本，会连库、只打印不断言，**不是测试套件**。
-- 不要提交 `nohup.out`、日志、数据库转储。
+- 不要提交 `nohup.out`、`logs/`、`.run/`、数据库转储。
 
 ```bash
 npm run verify             # 五项全跑

@@ -83,8 +83,8 @@ export async function collectScripts(root, options = {}) {
 export async function checkScriptSyntax(file) {
   try {
     const source = await import("node:fs/promises").then((fs) => fs.readFile(file, "utf8"));
-    // `new vm.Script` compiles without executing, so unrelated native
-    // dependencies (for example the `fibers` addon) never need to load.
+    // `new vm.Script` compiles without executing, so requiring a module that
+    // needs a live MySQL connection (or any native addon) never has to happen.
     new vm.Script(source, { filename: file });
     return { file, ok: true };
   } catch (error) {

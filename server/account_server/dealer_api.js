@@ -12,8 +12,8 @@ function send(res,ret){
 
 
 exports.start = function(config){
-	app.listen(config.DEALDER_API_PORT,config.DEALDER_API_IP);
-	console.log("dealer api is listening on " + config.DEALDER_API_IP + ":" + config.DEALDER_API_PORT);
+	// 返回 http.Server，交给 app.js 汇总成启动横幅（见 utils/startup.js）
+	return app.listen(config.DEALDER_API_PORT,config.DEALDER_API_IP);
 };
 
 //设置跨域访问

@@ -1,7 +1,6 @@
 var http = require('http');
 var https = require('https');
 var qs = require('querystring');
-var fibers = require('fibers');
 
 String.prototype.format = function(args) {
 	var result = this;
@@ -54,6 +53,15 @@ exports.post = function (host,port,path,data,callback) {
 	req.end(); 
 };
 
+// 把请求错误写成"哪台机器、哪个端口、哪个路径、什么错误"。
+// 直接用 e.message 是不够的：Node 对 localhost 会同时尝试 ::1 与 127.0.0.1，
+// 两个都失败时抛出的是 message 为空的 AggregateError，日志里只剩 "problem with request: "，
+// 完全看不出到底连不上谁（游戏服每秒向大厅服心跳，日志会被这种空行刷屏）。
+function describeError(e,host,port,path){
+	var code = (e && e.code) ? e.code : ((e && e.message) ? e.message : 'unknown error');
+	return code + ' — ' + host + ':' + (port || '') + path;
+}
+
 exports.get2 = function (url,data,callback,safe) {
 	var content = qs.stringify(data);
 	var url = url + '?' + content;
@@ -73,7 +81,7 @@ exports.get2 = function (url,data,callback,safe) {
 	});
 	  
 	req.on('error', function (e) {  
-		console.log('problem with request: ' + e.message);
+		console.log('problem with request: ' + ((e && e.code) ? e.code : e.message) + ' — ' + url);
 		callback(false,e);
 	});  
 	  
@@ -106,16 +114,24 @@ exports.get = function (host,port,path,data,callback,safe) {
 	});
 	  
 	req.on('error', function (e) {  
-		console.log('problem with request: ' + e.message);
+		console.log('problem with request: ' + describeError(e,host,port,path));
 		callback(false,e);
 	});  
 	  
 	req.end(); 
 };
 
-exports.getSync = function (url,data,safe,encoding) {
+// 拉取一个 URL 的原始响应体，结果通过 callback(contentType,body) 返回；失败时两个参数都是 null。
+//
+// 这里原先叫 getSync()：用 fibers 把异步 HTTP 包装成同步调用（fibers.yield / fiber.run）。
+// 但 fibers 1.0.15 的原生模块只支持到 node 8 左右，在 Node 12+ 与 Apple Silicon 上根本编译不出来，
+// require('fibers') 直接抛 "Missing binary"，导致三个进程连启动都做不到。
+// 因此改回与其它导出函数一致的回调风格，调用方按异步写法处理（见 account_server.js 的 /image）。
+exports.getRaw = function (url,data,safe,encoding,callback) {
 	var content = qs.stringify(data);
-	var url = url + '?' + content;
+	// data 为空时不要拼出多余的 '?'
+	var reqUrl = content ? (url + '?' + content) : url;
+
 	var proto = http;
 	if(safe){
 		proto = https;
@@ -124,52 +140,50 @@ exports.getSync = function (url,data,safe,encoding) {
 	if(!encoding){
 		encoding = 'utf8';
 	}
-	var ret = {
-		err:null,
-		data:null,
-	};
 
-	var f = fibers.current;
+	// end 与 error 在异常链路上可能都会触发，保证回调只走一次
+	var done = false;
+	function finish(type,body){
+		if(done){
+			return;
+		}
+		done = true;
+		callback(type,body);
+	}
 
-	var req = proto.get(url, function (res) {  
-		//console.log('STATUS: ' + res.statusCode);  
-		//console.log('HEADERS: ' + JSON.stringify(res.headers));  
+	var req = proto.get(reqUrl, function (res) {
+		//console.log('STATUS: ' + res.statusCode);
+		//console.log('HEADERS: ' + JSON.stringify(res.headers));
 		res.setEncoding(encoding);
 		var body = '';
+		var type = res.headers["content-type"];
 
-		ret.type = res.headers["content-type"];
 		res.on('data', function (chunk) {
 			body += chunk;
-			
 		});
 
 		res.on('end',function(){
 			if(encoding != 'binary'){
 				try {
-						
-					ret.data = JSON.parse(body);
-					f.run();
+					finish(type,JSON.parse(body));
 				} catch(e) {
-					console.log('JSON parse error: ' + e + ', url: ' + url);
+					// 老实现解析失败时没有唤醒 fiber，调用方会一直挂住；现在明确按失败返回
+					console.log('JSON parse error: ' + e + ', url: ' + reqUrl);
+					finish(null,null);
 				}
 			}
 			else{
-				ret.data = body;
-				f.run();
+				finish(type,body);
 			}
 		});
 	});
-	  
-	req.on('error', function (e) {  
-		console.log('problem with request: ' + e.message);
-		ret.err = e;
-		f.run();
-	});
-	  
-	req.end();
 
-	fibers.yield();
-	return ret;
+	req.on('error', function (e) {
+		console.log('problem with request: ' + ((e && e.code) ? e.code : e.message) + ' — ' + reqUrl);
+		finish(null,null);
+	});
+
+	req.end();
 };
 
 exports.send = function(res,errcode,errmsg,data){

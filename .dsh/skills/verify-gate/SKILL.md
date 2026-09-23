@@ -38,9 +38,9 @@ npm run test:tools                  # 只跑检查器自测
 | `smoke` | 麻将听牌判定与 MD5/Base64 工具的行为断言 | 纯逻辑被改坏 |
 | `selftest` | 检查器自己的解析/比对逻辑 | 门禁本身坏了（会假绿） |
 
-**`syntax` 刻意不执行文件**：`server` 里的 `fibers` 原生模块在当前 Node 上无法加载，
-若执行就会在 `require` 阶段炸掉。用 `vm.Script` 只编译不运行，正好绕开这一点。
-你新增检查时也要守住这条：**门禁必须能在没有 MySQL、没有 fibers 的环境里跑完**。
+**`syntax` 刻意不执行文件**：服务端的 `db.js` 需要一个真实 MySQL 连接，执行就会在
+`require`/建池阶段出问题。用 `vm.Script` 只编译不运行，正好绕开这一点。
+你新增检查时也要守住这条：**门禁必须能在没有 MySQL、没有 `server/node_modules` 的环境里跑完**。
 
 实现分别在 `repo:tools/lib/syntax.mjs`、`repo:tools/lib/harness.mjs`、
 `repo:tools/lib/protocol.mjs`、`repo:tools/lib/smoke.mjs`，编排在 `repo:tools/verify.mjs`。
@@ -77,7 +77,7 @@ mjutils.checkTingPai(seat, 0, 27);
 assert("...", Object.keys(seat.tingMap).join(",") === "13", JSON.stringify(seat.tingMap));
 ```
 
-**只加能离线判定的断言**：纯函数、字符串/数值变换、数据结构。凡是需要 DB、socket、fibers
+**只加能离线判定的断言**：纯函数、字符串/数值变换、数据结构。凡是需要 DB、socket、真实进程
 的，写到这里只会让门禁变脆。
 
 ### 加一项检查

@@ -174,6 +174,6 @@ exports.start = function($config){
 	};
 
 	setInterval(update,1000);
-	app.listen(config.HTTP_PORT,config.FOR_HALL_IP);
-	console.log("game server is listening on " + config.FOR_HALL_IP + ":" + config.HTTP_PORT);
+	// 返回 http.Server，交给 app.js 汇总成启动横幅（见 utils/startup.js）
+	return app.listen(config.HTTP_PORT,config.FOR_HALL_IP);
 };

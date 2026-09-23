@@ -455,5 +455,6 @@ exports.start = function(conf,mgr){
 		});
 	});
 
-	console.log("game server is listening on " + config.CLIENT_PORT);	
+	// 返回 http.Server，交给 app.js 汇总成启动横幅（见 utils/startup.js）
+	return httpServer;
 };

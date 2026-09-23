@@ -88,7 +88,7 @@ db.init(configs.mysql());
    ```
 2. **必须用 `?` 占位符传参**，不要拼字符串——现有代码已这么做，拼接会引入注入风险。
 3. 如果涉及新字段/新表，同步改 `repo:server/sql/db_babykylin.sql`。
-4. 调用方只 `require('../utils/db')`，**不要**在业务代码里 `require('mysql')` 或写 SQL。
+4. 调用方只 `require('../utils/db')`，**不要**在业务代码里 `require('mysql2')` 或写 SQL。
 
 `repo:server/tests/dbtest.js` 是历史手工脚本（会连库、只打印），**不要当作测试**，
 也不要在门禁里执行。

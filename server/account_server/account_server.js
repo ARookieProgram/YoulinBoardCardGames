@@ -2,7 +2,6 @@ var crypto = require('../utils/crypto');
 var express = require('express');
 var db = require('../utils/db');
 var http = require("../utils/http");
-var fibers = require('fibers');
 
 var app = express();
 var hallAddr = "";
@@ -17,8 +16,8 @@ var config = null;
 exports.start = function(cfg){
 	config = cfg;
 	hallAddr = config.HALL_IP  + ":" + config.HALL_CLIENT_PORT;
-	app.listen(config.CLIENT_PORT);
-	console.log("account server is listening on " + config.CLIENT_PORT);
+	// 返回 http.Server，交给 app.js 汇总成启动横幅（见 utils/startup.js）
+	return app.listen(config.CLIENT_PORT);
 }
 
 
@@ -32,9 +31,7 @@ app.all('*', function(req, res, next) {
     res.header("Access-Control-Allow-Methods","PUT,POST,GET,DELETE,OPTIONS");
     res.header("X-Powered-By",' 3.2.1')
 	res.header("Content-Type", "application/json;charset=utf-8");
-	fibers(function(){
-		next();
-	}).run();
+	next();
 });
 
 app.get('/register',function(req,res){
@@ -237,12 +234,14 @@ app.get('/image', function (req, res) {
 
 	var safe = url.search('https://') == 0;
 	console.log(url);
-	var ret = http.getSync(url, null, safe, 'binary');
-	if (!ret.type || !ret.data) {
-	  http.send(res, 1, 'invalid url', true);
-	  return;
-	}
-	res.writeHead(200, { "Content-Type": ret.type });
-	res.write(ret.data, 'binary');
-	res.end();
+	// 代理拉取远程图片：异步回调写法，拿到原始字节后再回写响应
+	http.getRaw(url, null, safe, 'binary', function (type, data) {
+		if (!type || !data) {
+			http.send(res, 1, 'invalid url', true);
+			return;
+		}
+		res.writeHead(200, { "Content-Type": type });
+		res.write(data, 'binary');
+		res.end();
+	});
 });

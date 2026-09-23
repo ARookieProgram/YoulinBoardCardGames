@@ -1,4 +1,6 @@
-var mysql = require('mysql');
+// 2016 年的手工脚本，参数与库名都是当时的值，仅用于随手连库看看（不是测试）。
+// 驱动跟着 db.js 一起换成 mysql2：mysql 已从依赖里移除。
+var mysql = require('mysql2');
 var conn = mysql.createConnection({
     host: 'localhost',
     user: 'root',

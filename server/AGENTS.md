@@ -9,12 +9,12 @@
 ```
 server/
 ├─ configs_mac.js / configs_win.js   ← 唯一配置来源（函数式导出，两个平台各一份）
-├─ start_all.sh / start_all_mac.sh   ← nohup 方式拉起三个进程
+├─ start_all.sh / start_all_mac.sh   ← 一键启动三个进程（mac 版带 stop/status/logs，见 §1.2）
 ├─ package.json / yarn.lock          ← 依赖清单与锁文件（yarn 1.x 是唯一依赖管理方式）
 ├─ account_server/                   ← 账号服 :9000，含 dealer_api :12581
 ├─ hall_server/                      ← 大厅服 :9001（客户端）、:9002（游戏服上报）
 ├─ game_server/                      ← 游戏服 :10000（Socket.IO）、:9003（HTTP）
-├─ utils/                            ← db.js / http.js / crypto.js 共享层
+├─ utils/                            ← db.js / http.js / crypto.js / startup.js 共享层
 ├─ sql/db_babykylin.sql              ← 建表与初始数据（权威 schema）
 ├─ tests/                            ← 2016 年的手工脚本，**不是自动化测试**
 └─ node_modules/                     ← 安装产物，**不提交**（server/.gitignore 已忽略）
@@ -42,23 +42,54 @@ yarn add <pkg>                   # 新增依赖，不要手改 package.json 后�
 
 - **`node_modules` 不再提交**（历史上曾把整个目录提交进 git），由 `repo:server/.gitignore` 忽略。
   锁文件才是唯一依据；`package-lock.json` 也已被忽略，不要把它提交回来。
-- 直接依赖只有 5 个：`express`、`fibers`、`log4js`、`mysql`、`socket.io`。
-  代码里实际 `require` 的是前 4 个加 `socket.io`；**`log4js` 目前没有任何引用**，
-  仅为历史遗留而保留声明。
+- 直接依赖只有 4 个：`express`、`log4js`、`mysql2`、`socket.io`。代码里实际 `require` 的是
+  `express`、`mysql2`、`socket.io`；**`log4js` 目前没有任何引用**，仅为历史遗留而保留声明。
 - 锁文件里是 yarn 解析出的版本，与 2016 年那套 node_modules 里的版本**不同**
-  （express 4.14.0 → 4.22.x、socket.io 1.4.6 → 1.7.x、mysql 2.11.1 → 2.18.x、
-  log4js 1.0.1 → 1.1.x）。这四个包在 Node 24 上 `require` 与建 Express app 均已实测通过；
-  但**整套服务没有运行时验证**——游戏服/大厅服会先加载 `fibers`，账号服直接依赖它，
-  在当前 Node 上 `require('fibers')` 就抛 "Missing binary"（§7.1）。
-- `yarn install` 默认会执行 `fibers` 的 install 脚本（`node build.js`）去编译原生扩展。
-  当前 Node 上这一步不会成功（fibers 1.0.15 只支持到 node 8 左右）；
-  用 `--ignore-scripts` 可以只装 JS 依赖，但账号服依然无法启动。
+  （express 4.14.0 → 4.22.x、socket.io 1.4.6 → 1.7.x、log4js 1.0.1 → 1.1.x、
+  mysql 2.11.1 → mysql2 3.24.x）。这几个包在 mac + Node 24 上已实测可启动
+  （三个进程都能监听端口并完成一次真实登录链路，见 §8）。
+- **两个驱动/原生模块的历史包袱都已清掉**，别再引入回来：
+  - `fibers`：只支持到 node 8，在 Node 12+ / Apple Silicon 上编译不出来，`require` 直接抛
+    "Missing binary"。原先它只服务于 `utils/http.js` 的同步 HTTP（`getSync`）与账号服
+    CORS 中间件的 fiber 包装；现在 `getSync` 已改成回调风格 `getRaw`，中间件直接 `next()`。
+  - `mysql`：只支持 `mysql_native_password`，连不上 MySQL 8 默认的
+    `caching_sha2_password`（brew 装的 MySQL 8.4 报 `ER_NOT_SUPPORTED_AUTH_MODE`）。
+    `mysql2` 是它的超集，`db.js` 只用到 `createPool` / `getConnection` / `query` / `release`，
+    替换是纯 API 兼容的。
+- `yarn install` 不再需要编译任何原生扩展，也就**不需要** `--ignore-scripts`。
 - 锁文件里的 `resolved` 统一指向 `https://registry.npmjs.org`。
   若你本机配了国内镜像，请显式指定仓库再更新锁文件，否则会把镜像地址写进锁文件：
   `yarn install --registry https://registry.npmjs.org`
 
 `package.json` 里还提供了三个进程的启动脚本（等价于 `node app.js ../configs_mac.js`）：
-`yarn account` / `yarn hall` / `yarn game`；`start_all*.sh` 与 `*.bat` 保持原先直接 `node` 的写法不变。
+`yarn account` / `yarn hall` / `yarn game`，适合**前台调试单个进程**；要起全套用下面的 `start_all_mac.sh`。
+
+### 1.2 一键启动：`repo:server/start_all_mac.sh`
+
+mac 上起停三个进程都用这一个脚本，不要再手敲三条 `nohup`：
+
+```bash
+cd server
+./start_all_mac.sh                  # 一键启动（缺省即 start），随后打印状态表
+./start_all_mac.sh status           # 只看状态；全部就绪退出码 0，否则 1
+./start_all_mac.sh stop             # SIGTERM 优雅停止（只停本脚本启动的进程）
+./start_all_mac.sh restart          # 先停后起
+./start_all_mac.sh logs game        # 跟踪某个进程的日志（account / hall / game，缺省全部）
+./start_all_mac.sh help             # 帮助（直接读脚本头部注释，两者不会走样）
+./start_all_mac.sh --config configs_win.js status   # 换配置文件
+```
+
+- **端口不写死在脚本里**：脚本用 `node -e` require 配置文件，按字段读出 6 个端口，
+  改 `configs_mac.js` 的端口，状态表自动跟着变；读不出来会明确标注"端口为内置默认值"。
+- **状态表**逐进程列出 PID、运行时长、两个端口各自 `[监听中] / [未监听] / [被占用]` 与日志路径。
+  `[被占用]` 表示端口在监听但不是本脚本启动的进程；此时 `start` 会拒绝启动该进程并报出占用者 PID。
+- 运行期产物：PID 记在 `repo:server/.run/pids`，日志写 `repo:server/logs/<名字>.log`
+  （每次启动重写，只对应最近一次运行），二者都已 gitignore。**不再产生 `nohup.out`。**
+- "就绪"以端口真的 listening 为准；进程起来又立刻退出（EADDRINUSE、配置写错…）时，
+  脚本会贴出该进程日志的最后 12 行。
+- 脚本只用 macOS 自带 bash 3.2 的特性。注意 bash 3.2 的多字节坑：`$VAR` 后面紧跟中文必须写成
+  `${VAR}`，否则变量展开为空、中文变乱码——脚本头部注释里记了这件事。
+- `start_all.sh`（旧/Linux 写法）与 `*.bat` 仍是原先三行 `nohup` / `start`，**没有**跟进这些子命令。
 
 ---
 
@@ -75,14 +106,18 @@ yarn add <pkg>                   # 新增依赖，不要手改 package.json 后�
 | 端口 | 绑定位置 | 用途 |
 | --- | --- | --- |
 | 9000 | `account_server/account_server.js:20` | 客户端 → 账号服 |
-| 12581 | `account_server/dealer_api.js:15` | 渠道/代理查询 |
-| 9001 | `hall_server/client_service.js:301` | 客户端 → 大厅服 |
-| 9002 | `hall_server/room_service.js:212` | 游戏服 → 大厅服上报 |
+| 12581 | `account_server/dealer_api.js:16` | 渠道/代理查询 |
+| 9001 | `hall_server/client_service.js:302` | 客户端 → 大厅服 |
+| 9002 | `hall_server/room_service.js:213` | 游戏服 → 大厅服上报 |
 | 10000 | `game_server/socket_service.js:30` | 客户端 Socket.IO 对局 |
-| 9003 | `game_server/http_service.js:177` | 大厅服 → 游戏服内部调用 |
+| 9003 | `game_server/http_service.js:178` | 大厅服 → 游戏服内部调用 |
+
+各 `start()` 返回自己的 `http.Server`，由 `*/app.js` 交给 `utils/startup.js` 汇总；横幅只有在
+上面 6 个端口（按进程分组）全部真正 listening 之后才打印。
 
 - 账号服 = `account_server.js`（`/guest`、`/register`、登录…）+ `dealer_api.js`（`/get_user_info`…）。
-  它 `require('fibers')`，**在当前 Node 上无法启动**（见根 `AGENTS.md` §3.3）。
+  两个服务在同一个进程里，由 `account_server/app.js` 一起拉起并汇总成一块启动横幅
+  （`utils/startup.js`）。
 - 大厅服的 `client_service.js` 是客户端 HTTP 接口（`/login`、`/create_private_room`、
   `/enter_private_room`、`/get_history_list`、`/get_message`…）；
   `room_service.js` 负责向游戏服发起 HTTP 调用并维护房间登记。
@@ -157,13 +192,15 @@ if(roomInfo.conf.type == "xlch"){ roomInfo.gameMgr = require("./gamemgr_xlch"); 
 
 ## 5. 数据访问层
 
-`repo:server/utils/db.js` 是**唯一**允许拼 SQL 的地方（750 行，导出 35 个函数）。
-业务代码只能调用它的导出，不要自己 `require('mysql')` 或拼 SQL 字符串。
+`repo:server/utils/db.js` 是**唯一**允许拼 SQL 的地方（导出 36 个函数）。
+业务代码只能调用它的导出，不要自己 `require('mysql2')` 或拼 SQL 字符串。
 
 - 连接池在 `db.init(configs.mysql())` 时创建，**进程启动时必须先 init**。
 - 函数风格是 `(args..., callback)`，错误通过 `callback(err, ...)` 传回；没有 Promise。
 - 用户名进出库都走 `repo:server/utils/crypto.js` 的 Base64 函数（`db.js` 内部处理）。
 - 表结构变更要同时改 `repo:server/sql/db_babykylin.sql` 与 `db.js` 里的语句。
+- `db.ping(callback)` 只做一次 `SELECT 1`，供 `utils/startup.js` 在启动横幅里显示数据库真实状态；
+  它不抛异常、也不要求进程退出。
 
 常用函数：`get_user_data`、`get_user_data_by_userid`、`create_user`、`update_user_info`、
 `cost_gems`、`add_user_gems`、`create_room`、`get_room_data`、`update_seat_info`、`delete_room`、
@@ -201,11 +238,12 @@ if(roomInfo.conf.type == "xlch"){ roomInfo.gameMgr = require("./gamemgr_xlch"); 
 
 ## 7. 你一定要遵守的约束
 
-1. **不要依赖能启动服务来验证改动**：账号服需要 `fibers`，`db.js` 需要真实 MySQL。
-   能用的是 `npm run verify`。
+1. **离线判据是 `npm run verify`，但服务本身已经能启动**：三个进程都能在 mac + Node 24 上跑起来
+   （`fibers` 与 `mysql` 两个历史包袱已清除，见 §1.1）；只有 DB 相关路径需要真实 MySQL。
+   启动横幅（`utils/startup.js`）会如实标注数据库是否连得上，不会把连不上库的进程说成"一切正常"。
 2. **`server/tests/*.js` 是历史手工脚本**（`dbtest.js`、`test.js` 等），会连数据库、会打印而不
    断言。不要把它们当作测试套件，也不要在 CI/门禁里执行。
-3. **不要提交 `nohup.out`、日志与数据库转储。**
+3. **不要提交 `nohup.out`、`logs/`、`.run/` 与数据库转储**（`start_all_mac.sh` 的运行期产物见 §1.2）。
 4. 端口、密钥、数据库口令集中在 `configs_*.js`。不要在业务代码里硬编码端口或密钥。
 5. `utils/http.js` 导出的 `send(res, errcode, errmsg, data)` 是**大厅服与游戏服**给客户端/调用方
    返回 JSON 的统一出口，这两个服务里新增接口请沿用它。
@@ -224,5 +262,26 @@ npm run check:protocol         # 动了任何推送事件名时必跑
 npm run check:smoke            # 动了 mjutils / crypto 时必跑
 ```
 
-若改动需要真实运行时（数据库、fibers）才能确认，请在提交说明里明确写出
-**"未运行时验证"** 以及你依赖了哪些静态证据。宁可承认没验证，也不要暗示已验证。
+**服务端现在可以真的启动**，所以动过服务端代码后请顺手起一遍受影响的那个进程：
+
+```bash
+cd server
+./start_all_mac.sh                           # 起全套并打印状态表（§1.2），停用 ./start_all_mac.sh stop
+./start_all_mac.sh logs hall                 # 盯某个进程的日志，比翻 nohup.out 方便
+
+# 只想前台跑单个进程时：
+yarn install --frozen-lockfile                # node_modules 不提交，换机后先装（不需要 --ignore-scripts）
+node hall_server/app.js ../configs_mac.js     # 三个进程各开一个终端
+node game_server/app.js ../configs_mac.js
+node account_server/app.js ../configs_mac.js
+```
+
+每个进程会打印一块启动横幅（`utils/startup.js`）：
+
+- 只有**所有端口都真正 listening** 才显示"启动成功"；端口被占用时打印占用端口与处理建议，
+  并以退出码 1 结束，不再出现"提示说成功、进程随即崩掉"的假象。
+- 横幅里的"数据库"一行来自 `db.ping()`，连不上库时会明确写"不可用 — <错误码>"，
+  进程继续启动（`/guest` 等接口不依赖数据库）。
+
+DB 相关改动（注册/登录/建房）必须有真实 MySQL 才能确认；做不到时请在提交说明里写出
+**"未运行时验证"** 以及依赖了哪些静态证据。宁可承认没验证，也不要暗示已验证。

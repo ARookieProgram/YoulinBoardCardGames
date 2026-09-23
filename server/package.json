@@ -7,9 +7,8 @@
   "license": "UNLICENSED",
   "dependencies": {
     "express": "^4.14.0",
-    "fibers": "1.0.15",
     "log4js": "^1.0.1",
-    "mysql": "^2.11.1",
+    "mysql2": "^3.24.4",
     "socket.io": "^1.4.6"
   },
   "scripts": {

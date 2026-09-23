@@ -14,7 +14,7 @@
 | 部分 | 技术栈 | 说明 |
 | --- | --- | --- |
 | `repo:client/` | Cocos Creator **2.4.15**（`cocos2d-html5`） | 客户端。`assets/scripts/` 下是手写的 ES5 风格 JS；`.fire` 场景由 Creator 编辑器产出 |
-| `repo:server/` | Node.js + Express + Socket.IO + MySQL（`mysql` 驱动） | 服务端。三个独立进程：账号服 / 大厅服 / 游戏服 |
+| `repo:server/` | Node.js + Express + Socket.IO + MySQL（`mysql2` 驱动） | 服务端。三个独立进程：账号服 / 大厅服 / 游戏服 |
 
 **代码风格是 2016 年的 ES5 + CommonJS**：`var`、`function`、回调，没有构建步骤、没有 TypeScript、
 没有转译器。请沿用现有风格，不要引入 `const`/`let`/箭头函数/`async` 混搭，也不要为客户端引入打包器。
@@ -79,14 +79,30 @@ if(roomInfo.conf.type == "xlch"){ roomInfo.gameMgr = require("./gamemgr_xlch"); 
 
 协议全景见 `repo:docs/ai-native/protocol.md`。
 
-### 3.3 服务端在当代 Node 上无法直接启动
+### 3.3 服务端已经能在本机启动，但 DB 相关改动仍需真实 MySQL
 
-- `repo:server/utils/http.js` 与 `repo:server/account_server/account_server.js` 依赖原生模块
-  `fibers`，仓库内预编译产物与当前 Node/OS 不匹配，`require` 即抛错。
-- `repo:server/utils/db.js` 需要真实 MySQL 实例。
+历史上三个进程都在 `require` 阶段就崩：`repo:server/utils/http.js` 依赖原生模块 `fibers`
+（只支持到 node 8 左右，在 Node 12+ / Apple Silicon 上根本编译不出来）。**这一点已修复**：
 
-因此在当前环境里**不要试图用 `node app.js` 验证改动**。可验证的部分已经沉淀为 `npm run verify`；
-需要真实运行时请在提交说明中写明"未运行时验证"并说明理由。
+- `fibers` 依赖被整体移除，`utils/http.js` 里基于 fiber 的同步 HTTP（`getSync`）改回回调风格
+  （`getRaw`），账号服 `/image` 是唯一调用方，已同步改写。
+- `repo:server/utils/db.js` 的驱动从 `mysql` 换成 `mysql2`：旧驱动只支持
+  `mysql_native_password`，连不上 MySQL 8 默认的 `caching_sha2_password`（brew 装的
+  MySQL 8.4 会直接报 `ER_NOT_SUPPORTED_AUTH_MODE`）。
+
+所以现在可以（也应该）用真实启动来验证改动：
+
+```bash
+cd server && node game_server/app.js ../configs_mac.js   # 或 yarn game
+```
+
+三个进程各自的启动横幅由 `repo:server/utils/startup.js` 统一打印：**所有端点真正 listening
+之后才打印"启动成功"**，端口被占用时打印明确原因并以非 0 退出；传入 `db` 时横幅还会附带一次
+数据库连通性自检，不会把连不上库的进程说成"一切正常"。
+
+仍然需要真实 MySQL 的是 DB 相关路径（注册/登录/建房）。`npm run verify` 不依赖 MySQL，
+所以**离线改动的完成判据始终是 `npm run verify`**；只有真实运行时才能确认的改动，
+按 `repo:server/AGENTS.md` §8 写明验证方式。
 
 ---
 

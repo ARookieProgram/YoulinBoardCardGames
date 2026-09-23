@@ -209,6 +209,6 @@ exports.enterRoom = function(userId,name,roomId,fnCallback){
 
 exports.start = function($config){
 	config = $config;
-	app.listen(config.ROOM_PORT,config.FOR_ROOM_IP);
-	console.log("room service is listening on " + config.FOR_ROOM_IP + ":" + config.ROOM_PORT);
+	// 返回 http.Server，交给 app.js 汇总成启动横幅（见 utils/startup.js）
+	return app.listen(config.ROOM_PORT,config.FOR_ROOM_IP);
 };

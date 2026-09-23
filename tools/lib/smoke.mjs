@@ -1,10 +1,9 @@
 /**
  * Behavioural smoke tests for pure server logic.
  *
- * The full server cannot boot in a modern Node runtime: `server/utils/http.js`
- * and the account server `require('fibers')`, a native addon that has no binary
- * for current Node versions, and the data layer needs a live MySQL instance.
- * That would normally mean zero behavioural coverage.
+ * The gate must stay dependency-free and offline, and the full server needs a
+ * live MySQL instance (the old `fibers` boot blocker is gone; see server/AGENTS.md
+ * §1.1). That would normally mean zero behavioural coverage in CI.
  *
  * These cases deliberately load only modules that touch neither: the mahjong
  * rules engine (`mjutils`) is pure arithmetic over a seat's tile counts, and the

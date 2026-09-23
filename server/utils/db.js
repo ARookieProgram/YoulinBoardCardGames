@@ -1,4 +1,7 @@
-var mysql=require("mysql");  
+// 驱动用 mysql2 而不是 mysql：两者 API 兼容（本文件只用到 createPool/getConnection/query/release），
+// 但 mysql@2.x 只支持 mysql_native_password，连不上 MySQL 8 默认的 caching_sha2_password，
+// 在 brew 装的 MySQL 8.4 上会直接报 ER_NOT_SUPPORTED_AUTH_MODE。详见 server/AGENTS.md §1.1。
+var mysql=require("mysql2");  
 var crypto = require('./crypto');
 
 var pool = null;
@@ -41,6 +44,31 @@ exports.init = function(config){
         password: config.PSWD,
         database: config.DB,
         port: config.PORT,
+    });
+};
+
+// 启动自检：探测数据库是否真的连得上，供启动横幅显示真实状态。
+// 只做一次 SELECT 1，不改变连接池状态；探测失败不抛异常、也不要求进程退出——
+// /guest 等接口并不依赖数据库，进程仍应能对外服务。
+exports.ping = function(callback){
+    callback = callback == null? nop:callback;
+    if(pool == null){
+        callback(false,"db.init() 尚未调用");
+        return;
+    }
+    pool.getConnection(function(err,conn){
+        if(err){
+            callback(false,err.code || err.message);
+            return;
+        }
+        conn.query('SELECT 1',function(qerr){
+            conn.release();
+            if(qerr){
+                callback(false,qerr.code || qerr.message);
+                return;
+            }
+            callback(true);
+        });
     });
 };
 
