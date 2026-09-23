@@ -123,7 +123,7 @@ start → loading → login → createrole ─┐
 `library/`、`temp/` 中的产物是按本机路径生成的。所以可用手段是：
 
 ```bash
-# 必须：语法（74 个文件中包含客户端全部一方脚本）
+# 必须：语法（80 个一方 .js/.ts 中包含客户端全部 47 个一方脚本）
 npm run check:syntax
 
 # 必须：若改了任何网络事件名或新增事件

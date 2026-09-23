@@ -14,6 +14,9 @@
 # 选项：
 #   --config <文件>                     配置文件，缺省 ../configs_mac.js（端口从它里面读）
 #
+# 服务端是 TypeScript：跑之前先编译一次（缺 dist/ 时脚本会明确提示）
+#   cd server && yarn install --frozen-lockfile && yarn build
+#
 # 相比原来三行 nohup 的改动：
 #   1. 先 cd 到脚本所在目录，在任何 cwd 下执行都能正确找到 ../configs_mac.js；
 #   2. 端口不再写死，而是用 node require 配置文件按字段读出（改了配置，状态表自动跟着变）；
@@ -47,10 +50,10 @@ RUN_DIR=".run"
 PID_FILE="$RUN_DIR/pids"
 LOG_DIR="logs"
 
-# CONFIG 是"传给 node 的写法"：三个 app.js 都是 require(process.argv[2])，相对路径按各自
-# 模块所在目录解析，所以 account_server/app.js 收到 "../configs_mac.js" 时指的是
-# server/configs_mac.js。而脚本自己要读同一份配置时，得按脚本目录（server/）解析——
-# 同一个文件两种相对写法，所以下面把"传给 node 的写法"和"真实文件"分开记。
+# CONFIG 是"传给 node 的写法"：三个入口都用 loadConfigs(process.argv[2], __dirname) 读配置，
+# 相对路径按各自模块所在目录解析，所以 dist/account_server/app.js 收到 "../configs_mac.js" 时
+# 指的是 dist/configs_mac.js（由 configs_mac.ts 编译而来）。脚本自己要读同一份配置时得按脚本
+# 目录（server/）解析——同一个文件两种相对写法，所以下面把"传给 node 的写法"和"真实文件"分开记。
 CONFIG="../configs_mac.js"
 CONFIG_FILE=""
 NODE="$(command -v node 2>/dev/null)"
@@ -58,7 +61,7 @@ NODE="$(command -v node 2>/dev/null)"
 # 三组数组按同一下标对应：bash 3.2 没有关联数组，用平行数组代替
 PROC_NAME=(account hall game)
 PROC_TITLE=(账号服 大厅服 游戏服)
-PROC_ENTRY=(account_server/app.js hall_server/app.js game_server/app.js)
+PROC_ENTRY=(dist/account_server/app.js dist/hall_server/app.js dist/game_server/app.js)
 PROC_LABEL1=("客户端 HTTP" "客户端 HTTP" "客户端 Socket.IO")
 PROC_LABEL2=("渠道/代理 API" "游戏服上报 HTTP" "内部 HTTP")
 
@@ -398,10 +401,17 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$CMD" ] || CMD="start"
 
-# 把 --config 传来的写法落到真实文件上。两种写法都要认：
-#   ../configs_mac.js   旧写法，相对的是入口文件目录（app.js 那边就是这么解析的）
+# 把 --config 传来的写法落到真实文件上。三种写法都要认：
+#   ../configs_mac.js   传给 node 的写法（相对入口模块目录 = dist/<进程>/）
 #   configs_mac.js      相对脚本目录（server/），人更容易写对
+#   绝对路径            原样使用
+# TypeScript 之后配置的真身是 dist/configs_mac.js（configs_mac.ts 的编译产物），
+# 因此优先去 dist/ 找同名文件。
 resolve_config() {
+	if [ -f "$SCRIPT_DIR/dist/$(basename "$CONFIG")" ]; then
+		CONFIG_FILE="$SCRIPT_DIR/dist/$(basename "$CONFIG")"
+		return 0
+	fi
 	if [ -f "$CONFIG" ]; then
 		CONFIG_FILE="$(cd "$(dirname "$CONFIG")" && pwd)/$(basename "$CONFIG")"
 		return 0
@@ -414,7 +424,8 @@ resolve_config() {
 }
 
 if ! resolve_config; then
-	echo "找不到配置文件：${CONFIG}（也试过 ${SCRIPT_DIR}/$(basename "$CONFIG")）" >&2
+	echo "找不到配置文件：${CONFIG}（也试过 ${SCRIPT_DIR}/dist/$(basename "$CONFIG") 与 ${SCRIPT_DIR}/$(basename "$CONFIG")）" >&2
+	echo "配置源文件是 configs_*.ts，需要先编译：cd server && yarn build" >&2
 	exit 1
 fi
 
@@ -451,6 +462,12 @@ case "$CMD" in
 		if [ ! -d node_modules/express ] || [ ! -d node_modules/mysql2 ] || [ ! -d node_modules/socket.io ]; then
 			echo "依赖不完整：缺少 node_modules 里的 express / mysql2 / socket.io" >&2
 			echo "先执行：cd server && yarn install --frozen-lockfile" >&2
+			exit 1
+		fi
+		# 跑的是 TypeScript 的编译产物：dist/ 不存在就没得跑，明确提示而不是等 node 报 MODULE_NOT_FOUND
+		if [ ! -f "${PROC_ENTRY[0]}" ] || [ ! -f "${PROC_ENTRY[1]}" ] || [ ! -f "${PROC_ENTRY[2]}" ]; then
+			echo "还没编译：找不到 dist/ 里的入口（${PROC_ENTRY[0]} …）" >&2
+			echo "先执行：cd server && yarn build" >&2
 			exit 1
 		fi
 

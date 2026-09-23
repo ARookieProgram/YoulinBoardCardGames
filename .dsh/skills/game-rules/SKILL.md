@@ -18,15 +18,16 @@ description: How the Sichuan mahjong rules engine works in this codebase - tile 
 
 | 文件 | 玩法 | 选择条件 |
 | --- | --- | --- |
-| `repo:server/game_server/gamemgr_xlch.js` | 血战到底 | `conf.type == "xlch"` |
-| `repo:server/game_server/gamemgr_xzdd.js` | 另一种玩法 | 其他所有值 |
+| `repo:server/game_server/gamemgr_xlch.ts` | 血战到底 | `conf.type == "xlch"` |
+| `repo:server/game_server/gamemgr_xzdd.ts` | 另一种玩法 | 其他所有值 |
 
-由 `repo:server/game_server/roommgr.js` 按落库的 `conf.type` 加载（两处：读库恢复房间、
-新建房间）。两份文件各约 2290 行，**约 86% 的行逐行相同**，差异集中在番型判定与流程分支。
+由 `repo:server/game_server/roommgr.ts` 按落库的 `conf.type` 加载（两处调用点：读库恢复房间、
+新建房间，都走同一个 `loadGameManager(type)` 懒加载助手）。两份文件各约 2500 行
+（`gamemgr_xlch.ts` 2488 / `gamemgr_xzdd.ts` 2510），**约 86% 的行逐行相同**，差异集中在番型判定与流程分支。
 
 > **动手前的固定动作**：改动先在 `xlch` 里写完，再 `diff` 到 `xzdd`，逐处确认是否同样适用。
 > 只适用于一种玩法的，在提交说明里写明"仅 xlch/xzdd，因为……"。
-> 用 `diff <(sed 's/[[:space:]]//g' gamemgr_xlch.js) <(sed 's/[[:space:]]//g' gamemgr_xzdd.js)`
+> 用 `diff <(sed 's/[[:space:]]//g' gamemgr_xlch.ts) <(sed 's/[[:space:]]//g' gamemgr_xzdd.ts)`
 > 可以快速看到两份的真实分歧。
 
 ## 2. 牌的编码
@@ -40,7 +41,7 @@ description: How the Sichuan mahjong rules engine works in this codebase - tile 
 | `18–26` | 万 | `18` = 1万 … `26` = 9万 |
 
 花色判定：`getMJType(pai)` 返回 `0/1/2`。**注意这个函数有三份拷贝**——
-`repo:server/game_server/mjutils.js` 导出一份，两份 `gamemgr_*` 各有一个本地同名函数。
+`repo:server/game_server/mjutils.ts` 导出一份，两份 `gamemgr_*` 各有一个本地同名函数。
 改花色边界必须三处一起改。
 
 座位数据结构（`seatData`）的关键字段：
@@ -58,7 +59,7 @@ description: How the Sichuan mahjong rules engine works in this codebase - tile 
 
 ## 3. 听牌/胡牌判定
 
-纯算术实现，位于 `repo:server/game_server/mjutils.js`（266 行，无 IO 依赖）：
+纯算术实现，位于 `repo:server/game_server/mjutils.ts`（304 行，无 IO 依赖）：
 
 - `checkTingPai(seatData, begin, end)` —— 对 `[begin, end)` 区间的每张牌试加入 `holds`，
   能胡则写进 `seatData.tingMap`，然后**撤销**这张牌。调用方按花色分三次调用：

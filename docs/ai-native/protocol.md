@@ -63,7 +63,7 @@
 
 ## 2. 客户端 → 服务端：对局事件
 
-全部在 `repo:server/game_server/socket_service.js` 里以 `socket.on(...)` 注册。
+全部在 `repo:server/game_server/socket_service.ts` 里以 `socket.on(...)` 注册。
 除 `login` 外都要求已登录（`socket.userId != null`），否则静默忽略。
 
 | 事件 | 数据 | 说明 |
@@ -97,16 +97,16 @@
 
 | 归属 | 文件 | 主要路径 |
 | --- | --- | --- |
-| 账号服 | `repo:server/account_server/account_server.js` | `/guest`、`/register`、登录 |
-| 账号服（代理） | `repo:server/account_server/dealer_api.js` | `/get_user_info` 等 |
-| 大厅服 | `repo:server/hall_server/client_service.js` | `/login`、`/create_user`、`/create_private_room`、`/enter_private_room`、`/get_history_list`、`/get_games_of_room`、`/get_detail_of_game`、`/get_user_status`、`/get_message` |
-| 游戏服（内部） | `repo:server/game_server/http_service.js` | `/get_server_info`、`/create_room`、`/enter_room`、`/is_room_runing`（**四个都校验 `sign`**；`/get_server_info` 用 `md5(serverid + ROOM_PRI_KEY)`） |
+| 账号服 | `repo:server/account_server/account_server.ts` | `/guest`、`/register`、登录 |
+| 账号服（代理） | `repo:server/account_server/dealer_api.ts` | `/get_user_info` 等 |
+| 大厅服 | `repo:server/hall_server/client_service.ts` | `/login`、`/create_user`、`/create_private_room`、`/enter_private_room`、`/get_history_list`、`/get_games_of_room`、`/get_detail_of_game`、`/get_user_status`、`/get_message` |
+| 游戏服（内部） | `repo:server/game_server/http_service.ts` | `/get_server_info`、`/create_room`、`/enter_room`、`/is_room_runing`（**四个都校验 `sign`**；`/get_server_info` 用 `md5(serverid + ROOM_PRI_KEY)`） |
 
 **HTTP 路径的增删不会让门禁报红。** 改这些接口时请人工双向搜索调用方
 （客户端搜 `cc.vv.http.sendRequest`，服务端搜 `http.send` / `res.send`）。
 注意客户端 `HTTP.js` **只用 GET**，参数走 query string。
 
-返回结构也不统一：大厅服与游戏服走 `utils/http.js` 的 `send()`（`{errcode, errmsg, data}`），
+返回结构也不统一：大厅服与游戏服走 `utils/http.ts` 的 `send()`（`{errcode, errmsg, data}`），
 账号服的两个文件各自定义本地 `send(res, ret)` 直接 `res.send`。
 
 ---
@@ -118,7 +118,7 @@
 | `push_need_create_role` | 客户端注册了处理器（在 `components/Login.js`，**不在 `GameNetMgr.js`**），但**服务端从不推送**。已列入 `KNOWN_UNSENT`，属于待清理的死代码；删除会影响登录分支，需产品确认。 |
 | 客户端 `connect` / `disconnect` / `reconnect` / `connect_failed` | socket.io 自身的连接事件，非业务推送，检查中排除。 |
 | `game_pong` | 不走 `addHandler`，由 `repo:client/assets/scripts/Net.js` 直接 `sio.on` 处理并计算延迟。检查已覆盖该注册路径。 |
-| 直连 `socket.emit` | `repo:server/game_server/socket_service.js` 里有 7 处（`login_result`×4、`login_finished`、`exit_result`、`game_pong`），全部在登录/连接阶段。**检查能扫到它们**，不要以为门禁看不见。 |
+| 直连 `socket.emit` | `repo:server/game_server/socket_service.ts` 里有 7 处（`login_result`×4、`login_finished`、`exit_result`、`game_pong`），全部在登录/连接阶段。**检查能扫到它们**，不要以为门禁看不见。 |
 
 ---
 

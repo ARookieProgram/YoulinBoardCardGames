@@ -5,9 +5,10 @@ description: How to run, read, and extend this repository's dependency-free veri
 
 # 验证门禁的使用与扩展
 
-本仓库的"完成"定义是 **`npm run verify` 全绿**。这是唯一不依赖真实运行时、不依赖
-`npm install` 的客观证据，所有改动都必须过它。（服务端第三方位依赖另由 `repo:server/yarn.lock`
-管理，门禁按目录名跳过 `node_modules`，两者互不影响。）
+本仓库的"完成"定义是 **`npm run verify` 全绿**。这是唯一不依赖真实运行时的客观证据，
+所有改动都必须过它。门禁自身零依赖，不装任何包也能跑完（服务端第三方依赖另由
+`repo:server/yarn.lock` 管理，门禁按目录名跳过 `node_modules`）；唯一的例外是 `types` 检查，
+它需要 `server/node_modules/typescript`，没装时该项自己报 **skipped** 而不是伪装成通过。
 
 ## 什么时候用
 
@@ -18,7 +19,7 @@ description: How to run, read, and extend this repository's dependency-free veri
 ## 1. 跑哪些命令
 
 ```bash
-npm run verify                      # 五项全跑（默认）
+npm run verify                      # 六项全跑（默认）
 npm run verify -- --verbose         # 打印每个被检查的文件 / 每条断言
 npm run verify -- --json            # 机器可读结果，便于程序解析
 npm run verify -- --only=protocol   # 只跑一项；多项用逗号分隔
@@ -28,19 +29,28 @@ npm run test:tools                  # 只跑检查器自测
 
 退出码：`0` 全绿，`1` 有失败。
 
-## 2. 五项检查分别在证什么
+## 2. 六项检查分别在证什么
+
+顺序固定为 `syntax` → `types` → `harness` → `protocol` → `smoke` → `selftest`：
 
 | 名称 | 断言 | 失败意味着 |
 | --- | --- | --- |
-| `syntax` | 74 个一方 `.js` 能被 `vm.Script` 编译（**编译但不执行**） | 有语法错误，运行时必崩 |
+| `syntax` | 共 80 个一方 `.js` / `.ts`：`.js` 用 `vm.Script` 编译、`.ts` 用 Node 内置 `module.stripTypeScriptTypes` 擦类型解析（**都只编译不执行**），并顺带强制 `.ts` 只用可擦除语法 | 有语法错误，运行时必崩；或用了 `enum` / `namespace` / `import x = require()` / 构造函数参数属性 |
+| `types` | 两半：① **no-any 审计**（零依赖，永远执行）扫 `server/` 下所有一方 `.ts`，注释先抹掉但保留行号，`: any` / `as any` / `<any>` / `@ts-ignore` / `@ts-expect-error` 一律失败；② 装了 `server/node_modules/typescript` 时再跑 `tsc --noEmit -p tsconfig.json`（`strict: true`） | 服务端有类型错误，或用了类型逃生舱。缺编译器时 ② 显示 **skipped**（并说明原因）而 ① 仍然执行，不是通过 |
 | `harness` | `AGENTS.md`×3 与 `.dsh/skills/*/SKILL.md` 存在、frontmatter 合法、`repo:` 路径存在 | Harness 会**静默**忽略这些知识 |
 | `protocol` | Socket.IO 事件词汇表两端逐字对齐 | 客户端收不到、或永远等不到某事件 |
-| `smoke` | 麻将听牌判定与 MD5/Base64 工具的行为断言 | 纯逻辑被改坏 |
-| `selftest` | 检查器自己的解析/比对逻辑 | 门禁本身坏了（会假绿） |
+| `smoke` | 麻将听牌判定、花色边界、MD5/Base64，加上 `String.prototype.format` 的三种形态与 `http.queryString` / `queryInt` 契约，共 19 条断言 | 纯逻辑被改坏 |
+| `selftest` | 检查器自己的解析/比对逻辑（含 `.ts` 语法检查与 `collectScripts` 收集 `.ts`、跳过 `.d.ts`），共 21 个用例 | 门禁本身坏了（会假绿） |
 
-**`syntax` 刻意不执行文件**：服务端的 `db.js` 需要一个真实 MySQL 连接，执行就会在
-`require`/建池阶段出问题。用 `vm.Script` 只编译不运行，正好绕开这一点。
-你新增检查时也要守住这条：**门禁必须能在没有 MySQL、没有 `server/node_modules` 的环境里跑完**。
+**`syntax` 刻意不执行文件**：服务端的 `db.ts` 需要一个真实 MySQL 连接，执行就会在
+`require`/建池阶段出问题。`vm.Script` / `stripTypeScriptTypes` 只解析不运行，正好绕开这一点。
+`.ts` 那一半依赖 Node 的 `module.stripTypeScriptTypes`（需要 **Node ≥ 22.13**）：更老的 Node 上
+这些文件会被明确标成 **`⊘ skipped` 而不是 ok**，摘要里也会写出跳过了多少个。
+
+**`types` 是唯一需要安装步骤的检查**——而且只有它的一半需要：`tsc --noEmit` 要
+`server/node_modules/typescript`（`cd server && yarn install` 之后才有），**no-any 审计是纯文本
+扫描，没有编译器也照跑**。其余五项在**没有 MySQL、没有 `server/node_modules`** 的环境里也能跑完。
+你新增检查时也要守住这条：要么零依赖，要么像 `types` 那样把"没条件看"的那半老实报成 skipped。
 
 实现分别在 `repo:tools/lib/syntax.mjs`、`repo:tools/lib/harness.mjs`、
 `repo:tools/lib/protocol.mjs`、`repo:tools/lib/smoke.mjs`，编排在 `repo:tools/verify.mjs`。
@@ -62,8 +72,10 @@ npm run test:tools                  # 只跑检查器自测
 技能正文里 `` `repo:某路径` `` 指向了不存在的文件。改了文件位置就要同步更新引用。
 
 **`smoke` 失败**
-说明 `repo:server/game_server/mjutils.js` 或 `repo:server/utils/crypto.js` 的行为变了。
+说明 `repo:server/game_server/mjutils.ts` 或 `repo:server/utils/crypto.ts` 的行为变了。
 先确认这是**有意**的行为变更；是，则更新断言并说明原因；不是，则修代码。
+`smoke` 加载模块时**优先直接 require `.ts` 源码**（Node 原生跑 TS；更老的 Node 退回
+`dist/<模块>.js` 产物），所以它既不需要编译也不需要 `yarn install`。
 
 ## 4. 怎么扩展门禁
 
@@ -95,5 +107,5 @@ assert("...", Object.keys(seat.tingMap).join(",") === "13", JSON.stringify(seat.
 
 - ❌ **为了让门禁变绿而放宽检查**。门禁的价值在于它敢报红。
 - ❌ **把失败项塞进忽略列表**。忽略列表要有注释解释为什么是死代码。
-- ❌ **在门禁里跑 `server/tests/*.js`**。它们是 2016 年的手工脚本，会连数据库、只打印不断言。
+- ❌ **在门禁里跑 `server/tests/*.ts`**。它们是 2016 年的手工脚本，会连数据库、只打印不断言。
 - ❌ **声称"已验证"但没有跑门禁**。没验证就写"未运行时验证"并说明依赖了什么静态证据。

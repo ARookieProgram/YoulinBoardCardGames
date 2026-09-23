@@ -1,0 +1,38 @@
+{
+  // 服务端 TypeScript 编译配置。
+  //
+  // 运行方式：`yarn build` 把 *.ts 编译到 dist/，再用 `node dist/<进程>/app.js ../configs_mac.js`
+  // 启动（等价的老命令只多了 dist/ 前缀，配置文件相对路径的语义没变：require 仍相对入口模块解析）。
+  //
+  // 严格性取舍（都是刻意决定，不是漏配）：
+  //   - strict: true 全开，这是本次迁移的硬要求；
+  //   - noUncheckedIndexedAccess 未开：本仓库大量使用 countMap[pai] / seats[i] 这类索引访问，
+  //     打开它会给几百处访问加上 | undefined，改动量巨大且极易在"顺手补默认值"时改坏牌局逻辑；
+  //   - noImplicitReturns / noUnusedLocals 未开：2016 年的老代码普遍存在隐式 return undefined
+  //     与未使用变量，强行满足它们会把行为改动混进这次纯迁移里。
+  // 目标读者是"行为不变的类型迁移"，因此这里宁可少开两个非 strict 项，也不改业务行为。
+  "compilerOptions": {
+    "target": "ES2021",
+    "lib": ["ES2021"],
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "rootDir": ".",
+    "outDir": "dist",
+    "types": ["node"],
+
+    "strict": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+    // 类型不通过就不要产出半成品 dist/：否则 node dist/... 会跑到上一次的旧产物上，
+    // 排查时非常容易被误导（重新编译前先 yarn clean）。
+    "noEmitOnError": true,
+
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "newLine": "lf"
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

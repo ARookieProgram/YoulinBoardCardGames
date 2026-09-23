@@ -14,9 +14,76 @@
  */
 
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import Module from "node:module";
+import * as nodeModule from "node:module";
 
 const require = createRequire(import.meta.url);
+
+/** `module.stripTypeScriptTypes` exists on Node >= 22.13; the gate must survive older Node. */
+const stripTypeScriptTypes =
+  typeof nodeModule.stripTypeScriptTypes === "function" ? nodeModule.stripTypeScriptTypes : null;
+
+/**
+ * Load one first-party server module for behaviour testing, without requiring a
+ * build step or an `npm install`.
+ *
+ * Order of attempts:
+ *   1. `require("<name>.ts")` — native TypeScript execution (Node >= 22.18);
+ *   2. strip the types with the Node built-in and compile the result as CommonJS
+ *      (Node >= 22.13; only helps for CommonJS-style sources);
+ *   3. `<name>.js` next to the source, then `server/dist/<name>.js` — the build
+ *      output, for a Node too old for either of the above.
+ *
+ * Every failure is collected and reported: a module that cannot be loaded is a
+ * failed smoke check, never a silently smaller test run.
+ *
+ * @param {string} root repository root.
+ * @param {string} relativeBase module path without extension, e.g. `game_server/mjutils`.
+ * @returns {{ module?: object, error?: string }} the loaded module or why it could not load.
+ */
+function loadServerModule(root, relativeBase) {
+  const attempts = [];
+  const tsPath = join(root, "server", `${relativeBase}.ts`);
+  const candidates = [tsPath, join(root, "server", `${relativeBase}.js`), join(root, "server/dist", `${relativeBase}.js`)];
+
+  if (existsSync(tsPath)) {
+    try {
+      return { module: require(tsPath) };
+    } catch (error) {
+      attempts.push(`${tsPath}: ${describe(error)}`);
+    }
+    if (stripTypeScriptTypes !== null) {
+      try {
+        const compiled = stripTypeScriptTypes(readFileSync(tsPath, "utf8"), { mode: "strip" });
+        const loaded = new Module(tsPath, null);
+        loaded.filename = tsPath;
+        loaded.paths = Module._nodeModulePaths(dirname(tsPath));
+        loaded._compile(compiled, tsPath);
+        return { module: loaded.exports };
+      } catch (error) {
+        attempts.push(`${tsPath} (strip+compile): ${describe(error)}`);
+      }
+    }
+  }
+
+  for (const candidate of candidates.slice(1)) {
+    if (!existsSync(candidate)) continue;
+    try {
+      return { module: require(candidate) };
+    } catch (error) {
+      attempts.push(`${candidate}: ${describe(error)}`);
+    }
+  }
+
+  return { error: attempts.join(" | ") || `找不到 ${relativeBase}.ts（也没有 .js 或 dist 产物）` };
+}
+
+/** @param {unknown} error @returns {string} */
+function describe(error) {
+  return error instanceof Error ? error.message : String(error);
+}
 
 /** @type {{ name: string, ok: boolean, detail?: string }[]} */
 const results = [];
@@ -52,18 +119,20 @@ export function buildSeat(holds) {
  * @returns {Promise<{ ok: boolean, checks: { name: string, ok: boolean, detail?: string }[], error?: string }>}
  */
 export async function runSmoke(root) {
-  let mjutils;
-  let crypto;
-  try {
-    mjutils = require(join(root, "server/game_server/mjutils.js"));
-    crypto = require(join(root, "server/utils/crypto.js"));
-  } catch (error) {
+  const mjutilsLoad = loadServerModule(root, "game_server/mjutils");
+  const cryptoLoad = loadServerModule(root, "utils/crypto");
+  const httpLoad = loadServerModule(root, "utils/http");
+  if (mjutilsLoad.error !== undefined || cryptoLoad.error !== undefined || httpLoad.error !== undefined) {
     return {
       ok: false,
       checks: [],
-      error: `could not load pure server modules: ${error instanceof Error ? error.message : String(error)}`,
+      error: `could not load pure server modules: ${[mjutilsLoad.error, cryptoLoad.error, httpLoad.error].filter(Boolean).join(" | ")}`,
     };
   }
+
+  const mjutils = mjutilsLoad.module;
+  const crypto = cryptoLoad.module;
+  const http = httpLoad.module;
 
   // Callers always pass a complete 13-tile hand, so the waits are exactly the
   // 14th tiles that would complete it.
@@ -145,6 +214,44 @@ export async function runSmoke(root) {
     "crypto base64 round-trips non-ASCII player names",
     crypto.fromBase64(crypto.toBase64("四川麻将玩家")) === "四川麻将玩家",
     `got ${crypto.fromBase64(crypto.toBase64("四川麻将玩家"))}`,
+  );
+
+  // 6. `String.prototype.format` is infrastructure, not a detail: the SQL layer in
+  //    `utils/db.ts` builds 11 statements with it. The patch lives at the top of
+  //    `utils/http.ts`, so this pins both its existence and its two call shapes.
+  assert(
+    "String.prototype.format replaces positional placeholders",
+    "a={0},b={1}".format("x", 2) === "a=x,b=2",
+    `got ${"a={0},b={1}".format("x", 2)}`,
+  );
+  assert(
+    "String.prototype.format replaces named placeholders",
+    "{x}-{y}".format({ x: "1", y: "2" }) === "1-2",
+    `got ${"{x}-{y}".format({ x: "1", y: "2" })}`,
+  );
+  assert(
+    "String.prototype.format leaves placeholders alone with no arguments",
+    "{0}".format() === "{0}",
+    `got ${"{0}".format()}`,
+  );
+
+  // 7. Query helpers. express widens every query value to
+  //    `string | string[] | ParsedQs | ParsedQs[] | undefined`; these two narrow it
+  //    back for the whole server, so their contract is worth pinning. A repeated
+  //    parameter is deliberately treated as "not provided" (see the doc comment).
+  const fakeRequest = { query: { s: "abc", n: "42", dup: ["a", "b"] } };
+  assert("queryString returns a plain string parameter", http.queryString(fakeRequest, "s") === "abc");
+  assert(
+    "queryString refuses repeated parameters",
+    http.queryString(fakeRequest, "dup") === undefined,
+    `got ${JSON.stringify(http.queryString(fakeRequest, "dup"))}`,
+  );
+  assert("queryString returns undefined when absent", http.queryString(fakeRequest, "nope") === undefined);
+  assert("queryInt parses an integer parameter", http.queryInt(fakeRequest, "n") === 42);
+  assert(
+    "queryInt is NaN when the parameter is absent (matches parseInt)",
+    Number.isNaN(http.queryInt(fakeRequest, "nope")),
+    `got ${http.queryInt(fakeRequest, "nope")}`,
   );
 
   return { ok: results.every((entry) => entry.ok), checks: results };

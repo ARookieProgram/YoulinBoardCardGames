@@ -13,11 +13,18 @@
 
 | 风险 | 具体表现 | 本工程的应对 |
 | --- | --- | --- |
-| **架构只存在于人脑** | 三个进程、六个监听端口、两条签名链路、两份并行玩法实现，散落在 27 个服务端文件里 | `AGENTS.md` 分层契约 + 5 个技能包 + 本目录四份参考文档 |
-| **无法验证 = 无法交付** | 服务端完整链路需要真实 MySQL（`fibers` 的启动障碍已清除，见根 `AGENTS.md` §3.3），客户端需要图形化编辑器构建，2016 年的 `tests/*.js` 只会打印不断言 | `npm run verify`：零依赖、可离线跑的五项门禁 |
+| **架构只存在于人脑** | 三个进程、六个监听端口、两条签名链路、两份并行玩法实现，散落在 35 个服务端源码文件（`.ts`）里 | `AGENTS.md` 分层契约 + 5 个技能包 + 本目录五份参考文档 |
+| **无法验证 = 无法交付** | 服务端完整链路需要真实 MySQL（`fibers` 的启动障碍已清除，见根 `AGENTS.md` §3.3），客户端需要图形化编辑器构建，2016 年的 `tests/*.ts` 只会打印不断言 | `npm run verify`：零依赖、可离线跑的六项门禁（`types` 缺编译器时自报 skipped） |
 
 **核心设计原则：把"能自动判断的对错"全部自动化，把"只能人工确认的"显式标注出来。**
 不假装能验证不能验证的东西（见 §5）。
+
+**技术栈现状**：服务端是 Node.js + **TypeScript（`strict: true`）** + Express + Socket.IO +
+MySQL（`mysql2`），由 `tsc` 编译到 `server/dist/` 后运行；客户端仍是 Cocos Creator 2.4.15 的
+ES5 JavaScript（`var` / `function` / 回调的客户端风格约定不变）。服务端这次是**行为不变的纯类型迁移**，
+所以源码里同样保留 `var` / `function` / 回调，只有模块语法换成了 `import` / `export`
+（由 `tsc --module CommonJS` 编译回 `require`）——为什么这么定、逐条规矩是什么，见
+`repo:docs/ai-native/typescript-migration.md`。
 
 ---
 
@@ -27,7 +34,7 @@
 第 0 层  项目根标记            .git
 第 1 层  每次必读的短契约      AGENTS.md（根）、client/AGENTS.md、server/AGENTS.md
 第 2 层  按需加载的长知识      .dsh/skills/<name>/SKILL.md   ×5
-第 3 层  人类可读的参考文档    docs/ai-native/*.md           ×4
+第 3 层  人类可读的参考文档    docs/ai-native/*.md           ×5
 ```
 
 为什么这样分层：
@@ -46,6 +53,7 @@
 | 技能索引 | `repo:docs/ai-native/skills-guide.md` | 技能加载规则、新增技能模板与写作原则 |
 | 协议全景 | `repo:docs/ai-native/protocol.md` | 39 个推送事件 + 20 个客户端事件 + HTTP 接口索引（§1 表格与源码的一致性由门禁强制） |
 | 玩法规格 | `repo:docs/ai-native/game-rules.md` | 牌编码、听牌算法、**七对未实现**、动作常量与回放兼容红线、房间配置两层结构 |
+| TS 迁移规范 | `repo:docs/ai-native/typescript-migration.md` | 服务端为什么编译到 `dist/`、逐条转换规则、共享类型清单、刻意的严格性取舍 |
 | 客户端结构 | `repo:docs/ai-native/client-map.md` | 目录边界、脚本分层、组件职责、场景图 |
 
 ### 技能清单
@@ -56,7 +64,7 @@
 | `server-architecture` | 改服务端、加接口、加推送事件 |
 | `game-rules` | 改听牌/胡牌/番型/流程 |
 | `client-integration` | 改客户端组件、加事件处理器、改场景 |
-| `data-layer` | 改持久化、加 `db.js` 函数、改 schema |
+| `data-layer` | 改持久化、加 `db.ts` 函数、改 schema |
 
 技能实现细节见 `repo:docs/ai-native/skills-guide.md`。
 
@@ -65,7 +73,7 @@
 ## 3. 验证门禁
 
 ```bash
-npm run verify            # 五项全跑（交付前必须全绿）
+npm run verify            # 六项全跑（交付前必须全绿）
 npm run verify -- --verbose
 npm run verify -- --json
 npm run verify:list
@@ -73,16 +81,19 @@ npm run verify:list
 
 | 检查 | 断言 | 实现 |
 | --- | --- | --- |
-| `syntax` | 74 个一方 `.js`（client 47 / server 27）能被 `vm.Script` **编译但不执行** | `repo:tools/lib/syntax.mjs` |
+| `syntax` | 80 个一方 `.js` / `.ts`（client 47 / server 33）都能被解析：`.js` 用 `vm.Script` **编译但不执行**，`.ts` 用 `module.stripTypeScriptTypes` 擦类型解析（只允许可擦除语法） | `repo:tools/lib/syntax.mjs` |
+| `types` | 两半：① 零依赖的 **no-any 审计**扫所有一方 `.ts`（`: any` / `as any` / `<any>` / `@ts-ignore` / `@ts-expect-error` 一律失败）；② `tsc --noEmit` 严格类型检查（`strict: true`）。缺 `server/node_modules/typescript` 时 ② 报 skipped，① 仍执行 | `repo:tools/verify.mjs` |
 | `harness` | 3 份 `AGENTS.md` + 5 个技能存在、frontmatter 合法、`repo:` 引用存在 | `repo:tools/lib/harness.mjs` |
 | `protocol` | 三向对齐：服务端推送 ↔ 客户端处理器 ↔ `protocol.md` §1 表格（39 推送 / 44 处理器） | `repo:tools/lib/protocol.mjs` |
-| `smoke` | 听牌/胡牌判定的 5 类牌型 + 花色边界 + MD5 + Base64（含中文昵称）共 11 条断言 | `repo:tools/lib/smoke.mjs` |
-| `selftest` | 检查器自身的 18 个用例（含畸形输入） | `repo:tools/selftest.test.mjs` |
+| `smoke` | 听牌/胡牌判定的 5 类牌型 + 花色边界 + MD5 + Base64（含中文昵称）+ `String.prototype.format` + `http.queryString`/`queryInt`，共 19 条断言 | `repo:tools/lib/smoke.mjs` |
+| `selftest` | 检查器自身的 21 个用例（含畸形输入、`.ts` 语法检查、`.d.ts` 跳过） | `repo:tools/selftest.test.mjs` |
 
-**"编译但不执行"仍然是关键设计**：门禁必须零依赖、离线可跑，所以用 `vm.Script` 只编译不执行，
-既拿到语法错误的全部价值，又不需要原生依赖或数据库。服务端本身现在可以真实启动
-（见根 `AGENTS.md` §3.3），但**门禁不替你做运行时验证**——那一步请按 `repo:server/AGENTS.md` §8 手动跑。
-`selftest` 则保证门禁自己不会"假绿"。
+**"只解析不执行"仍然是关键设计**：门禁必须零依赖、离线可跑，所以 `.js` 用 `vm.Script`
+只编译不执行，`.ts` 用 Node 内置 `module.stripTypeScriptTypes` 只擦类型不运行（因此还顺带强制
+"只允许可擦除语法"），既拿到语法错误的全部价值，又不需要原生依赖或数据库。`.ts` 那一半需要
+**Node ≥ 22.13**，更老的 Node 上这些文件在摘要里被明确标成 `skipped` 而不是通过。
+服务端本身现在可以真实启动（见根 `AGENTS.md` §3.3），但**门禁不替你做运行时验证**——
+那一步请按 `repo:server/AGENTS.md` §8 手动跑。`selftest` 则保证门禁自己不会"假绿"。
 
 ---
 
@@ -123,8 +134,8 @@ npm run verify:list
 
 | 项目 | 原因 |
 | --- | --- |
-| 服务端运行时行为 | 门禁不启动进程；`db.js` 的 DB 路径需要真实 MySQL（进程本身已可在 mac + Node 24 启动） |
-| SQL 的执行结果 | 无数据库实例。门禁只覆盖 `.js` 语法，不校验 SQL |
+| 服务端运行时行为 | 门禁不启动进程；`db.ts` 的 DB 路径需要真实 MySQL（进程本身已可在 mac + Node 24 启动） |
+| SQL 的执行结果 | 无数据库实例。门禁只解析 `.js` / `.ts` 语法并做类型检查，不校验 SQL |
 | 客户端构建与运行 | Creator 2.4.15 依赖图形化编辑器；`library/`、`temp/` 是本机产物 |
 | HTTP 接口路径的增删 | 门禁只覆盖 Socket.IO 事件名，不覆盖 Express 路由 |
 | `.fire` / `.meta` / 美术资源 | 由编辑器维护，人工在编辑器内验证 |
@@ -176,6 +187,7 @@ docs/ai-native/                ← 本目录
 ├─ skills-guide.md             ← 技能加载规则与新增模板
 ├─ protocol.md                 ← Socket.IO 协议全景
 ├─ game-rules.md               ← 玩法规格与兼容红线
+├─ typescript-migration.md     ← 服务端 TS 迁移规范
 └─ client-map.md               ← 客户端结构图
 tools/                         ← 门禁实现（零依赖）
 ├─ verify.mjs                  ← 编排

@@ -1,7 +1,7 @@
 # 玩法规格（四川麻将 · 血战到底）
 
 本文说明本实现中**玩法逻辑的落点与编码约定**。业务规则细节（每种番型的定义）以
-`repo:server/game_server/gamemgr_xlch.js` 内的实现为准——本文不复制番型表，只讲清楚
+`repo:server/game_server/gamemgr_xlch.ts` 内的实现为准——本文不复制番型表，只讲清楚
 "逻辑在哪、数据长什么样、改哪里会连带改什么"。
 
 ---
@@ -10,18 +10,19 @@
 
 | 实现 | `conf.type` | 文件 | 行数 |
 | --- | --- | --- | --- |
-| 血战到底 | `"xlch"` | `repo:server/game_server/gamemgr_xlch.js` | 2289 |
-| 另一玩法 | 其他值（客户端用 `"xzdd"`） | `repo:server/game_server/gamemgr_xzdd.js` | 2298 |
+| 血战到底 | `"xlch"` | `repo:server/game_server/gamemgr_xlch.ts` | 2488 |
+| 另一玩法 | 其他值（客户端用 `"xzdd"`） | `repo:server/game_server/gamemgr_xzdd.ts` | 2510 |
 
-选择点在 `repo:server/game_server/roommgr.js` 的两处，**变量不同名**：
-`:147` 新建房间读入参 `roomConf.type`；`:34` 从数据库恢复房间读已落库的 `roomInfo.conf.type`。
+选择点在 `repo:server/game_server/roommgr.ts`：两处调用点都走同一个懒加载助手
+`loadGameManager(type)`（`:61`）。**变量不同名**：`:216` 新建房间读入参 `roomConf.type`；
+`:83` 从数据库恢复房间读已落库的 `conf.type`。
 **漏改第二处会导致服务器重启后房间行为漂移。**
 
-两份文件约 **86%** 的行逐行相同（`difflib` ratio 0.857），定位真实分歧：
+两份文件约 **86%** 的行逐行相同（`difflib` ratio 0.864），定位真实分歧：
 
 ```bash
 cd server/game_server
-diff <(sed 's/[[:space:]]//g' gamemgr_xlch.js) <(sed 's/[[:space:]]//g' gamemgr_xzdd.js)
+diff <(sed 's/[[:space:]]//g' gamemgr_xlch.ts) <(sed 's/[[:space:]]//g' gamemgr_xzdd.ts)
 ```
 
 ---
@@ -38,11 +39,11 @@ diff <(sed 's/[[:space:]]//g' gamemgr_xlch.js) <(sed 's/[[:space:]]//g' gamemgr_
 
 `getMJType(pai)` 返回花色编号 `0/1/2`。**该函数存在三份拷贝**：
 
-1. `repo:server/game_server/mjutils.js` —— 导出为 `exports.getMJType`
-2. `repo:server/game_server/gamemgr_xlch.js` —— 本地 `function getMJType(id)`
-3. `repo:server/game_server/gamemgr_xzdd.js` —— 本地 `function getMJType(id)`
+1. `repo:server/game_server/mjutils.ts` —— 导出为 `export function getMJType`
+2. `repo:server/game_server/gamemgr_xlch.ts` —— 本地 `function getMJType(id)`
+3. `repo:server/game_server/gamemgr_xzdd.ts` —— 本地 `function getMJType(id)`
 
-> 2026-09 修复记录：`mjutils.js` 里的导出曾误写为读取未定义变量 `id`（形参名是 `pai`），
+> 2026-09 修复记录：`mjutils.ts` 里的导出曾误写为读取未定义变量 `id`（形参名是 `pai`），
 > 调用即抛 `ReferenceError`。由于没有任何调用方，这个缺陷长期未被发现；
 > 现已修正，并由 `npm run check:smoke` 的 `getMJType` 三条断言（筒/条/万边界）守住。
 > **改动花色边界时三处都要改。**
@@ -67,7 +68,7 @@ diff <(sed 's/[[:space:]]//g' gamemgr_xlch.js) <(sed 's/[[:space:]]//g' gamemgr_
 
 ## 4. 听牌 / 胡牌判定
 
-实现在 `repo:server/game_server/mjutils.js`（266 行，**纯算术、无 IO**，因此可离线测试）。
+实现在 `repo:server/game_server/mjutils.ts`（304 行，**纯算术、无 IO**，因此可离线测试）。
 
 ```
 checkTingPai(seatData, begin, end)     ← 唯一导出的入口
@@ -93,8 +94,9 @@ checkTingPai(seatData, begin, end)     ← 唯一导出的入口
 npm run check:smoke
 ```
 
-现有 11 条断言覆盖：单钓将、四刻子后的将牌、两个相同顺子 + 将牌的组合、散牌不报听、
-**七对不被识别（把当前限制钉住）**、`getMJType` 花色边界、`md5`、Base64 往返（含中文昵称）。
+现有 19 条断言覆盖：单钓将、四刻子后的将牌、两个相同顺子 + 将牌的组合、散牌不报听、
+**七对不被识别（把当前限制钉住）**、`getMJType` 花色边界、`md5`、Base64 往返（含中文昵称），
+以及 `String.prototype.format` 的三种形态与 `http.queryString` / `queryInt` 的返回契约。
 改判定逻辑必须同步更新断言。
 
 ---

@@ -21,7 +21,7 @@
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { collectScripts, checkScriptSyntax, displayPath } from "./lib/syntax.mjs";
+import { collectScripts, checkScriptSyntax, displayPath, exists, findStrayServerJavaScript } from "./lib/syntax.mjs";
 import { checkHarness } from "./lib/harness.mjs";
 import { checkProtocol } from "./lib/protocol.mjs";
 import { runSmoke } from "./lib/smoke.mjs";
@@ -43,7 +43,7 @@ const dim = (text) => paint(2, text);
 const bold = (text) => paint(1, text);
 
 /**
- * Check: every first-party `.js` file parses.
+ * Check: every first-party `.js` / `.ts` file parses.
  * @returns {Promise<object>} check result.
  */
 async function syntaxCheck() {
@@ -53,19 +53,140 @@ async function syntaxCheck() {
   const targets = [...clientFiles, ...serverFiles, ...toolFiles];
 
   const failures = [];
+  const skipped = [];
   for (const file of targets) {
     const result = await checkScriptSyntax(file);
     if (!result.ok) failures.push(`${displayPath(ROOT, file)}\n    ${result.error}`);
+    else if (result.skipped === true) skipped.push(displayPath(ROOT, file));
     else if (options.verbose) console.log(dim(`    ok  ${displayPath(ROOT, file)}`));
+  }
+
+  // A skip is not a failure, but it must never look like a pass either: on a Node
+  // too old to strip types the .ts half of the repository is simply not checked,
+  // and the summary says so out loud.
+  for (const file of skipped) console.log(dim(`    ⊘ skipped ${file}`));
+
+  // `server/` must not contain first-party `.js` at all: Node resolves `.js`
+  // before `.ts`, so a leftover copy is the file that actually runs.
+  const stray = await findStrayServerJavaScript(ROOT);
+  for (const file of stray) {
+    failures.push(
+      `${displayPath(ROOT, file)}\n    server/ 已全量迁移到 TypeScript：这里残留了一方 .js。Node 会优先加载 .js 而不是同名 .ts，` +
+        `旧副本会掩盖真实行为；编译产物只该出现在 dist/（yarn build 生成）。请删除这个文件。`,
+    );
   }
 
   return {
     name: "syntax",
-    title: "JavaScript syntax",
+    title: "JavaScript / TypeScript syntax",
     ok: failures.length === 0,
-    summary: `${targets.length} files parsed`,
+    summary:
+      `${targets.length - skipped.length} files parsed` +
+      (skipped.length === 0 ? "" : `, ${skipped.length} skipped (Node too old for .ts)`) +
+      (stray.length === 0 ? "" : `, ${stray.length} stray server .js`),
     failures,
   };
+}
+
+/**
+ * Check: `server/` type-checks with `strict: true`, and does not escape the type
+ * system with `any` / `@ts-ignore`.
+ *
+ * The migration contract is "strict types, as little `any` as possible", so the
+ * escape hatches are audited mechanically instead of being left to review:
+ * `any` in any form, `@ts-ignore` and `@ts-expect-error` all count as failures.
+ * The audit is pure text processing, so it runs even when the compiler is
+ * missing — type checking itself needs TypeScript from `server/node_modules`,
+ * which `yarn install` provides. When it is absent that half reports itself as
+ * *skipped* (never as passed) while the audit result still stands.
+ *
+ * @returns {Promise<object>} check result.
+ */
+async function typesCheck() {
+  const serverDir = join(ROOT, "server");
+  const audit = await auditNoAnyEscapeHatches();
+
+  const tsc = join(serverDir, "node_modules/typescript/bin/tsc");
+  if (!(await exists(tsc))) {
+    return {
+      name: "types",
+      title: "TypeScript strict type-check",
+      ok: audit.failures.length === 0,
+      skipped: audit.failures.length === 0,
+      summary:
+        audit.failures.length === 0
+          ? `skipped — ${audit.files} 个 .ts 已通过 no-any 审计；未找到 server/node_modules/typescript（先 cd server && yarn install）`
+          : `${audit.failures.length} 处 any / 类型检查逃生舱`,
+      failures: audit.failures,
+    };
+  }
+
+  const { spawn } = await import("node:child_process");
+  const run = await new Promise((resolve) => {
+    const child = spawn(process.execPath, [tsc, "--noEmit", "-p", "tsconfig.json"], {
+      cwd: serverDir,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    child.stdout.on("data", (chunk) => (output += chunk));
+    child.stderr.on("data", (chunk) => (output += chunk));
+    child.on("close", (code) => resolve({ code, output }));
+  });
+
+  const lines = run.output.split("\n").filter((line) => line.trim() !== "");
+  const failures = [...audit.failures];
+  if (run.code !== 0) failures.push(lines.slice(0, 60).join("\n"));
+
+  return {
+    name: "types",
+    title: "TypeScript strict type-check",
+    ok: failures.length === 0,
+    summary:
+      run.code === 0
+        ? `server/ ${audit.files} 个 .ts：tsc --noEmit（strict）无错误，且无 any / @ts-ignore`
+        : `${lines.length} 行 tsc 输出`,
+    failures,
+  };
+}
+
+/** Type-system escape hatches this repository does not accept. */
+const FORBIDDEN_TYPE_PATTERNS = [
+  { pattern: /:\s*any\b/, label: "显式 any 类型" },
+  { pattern: /\bas\s+any\b/, label: "as any 断言" },
+  { pattern: /<any>/, label: "<any> 断言" },
+  { pattern: /@ts-ignore\b/, label: "@ts-ignore" },
+  { pattern: /@ts-expect-error\b/, label: "@ts-expect-error" },
+];
+
+/**
+ * Audit every first-party `.ts` file for explicit `any` and type-check escapes.
+ *
+ * Comments are blanked out (newlines kept so line numbers stay true) before
+ * matching, so prose about `any` — including the rules themselves — is not
+ * mistaken for a violation.
+ *
+ * @returns {Promise<{ files: number, failures: string[] }>} audit outcome.
+ */
+async function auditNoAnyEscapeHatches() {
+  const { readFile } = await import("node:fs/promises");
+  const files = (await collectScripts(join(ROOT, "server"))).filter((file) => file.endsWith(".ts"));
+  const failures = [];
+
+  for (const file of files) {
+    const source = await readFile(file, "utf8");
+    const blanked = source
+      .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, " "))
+      .replace(/\/\/[^\n]*/g, "");
+    blanked.split("\n").forEach((line, index) => {
+      for (const { pattern, label } of FORBIDDEN_TYPE_PATTERNS) {
+        if (pattern.test(line)) {
+          failures.push(`${displayPath(ROOT, file)}:${index + 1} 出现${label}：${line.trim()}`);
+        }
+      }
+    });
+  }
+
+  return { files: files.length, failures };
 }
 
 /**
@@ -181,6 +302,7 @@ async function selfTestCheck() {
 
 const CHECKS = [
   ["syntax", syntaxCheck],
+  ["types", typesCheck],
   ["harness", harnessCheck],
   ["protocol", protocolCheck],
   ["smoke", smokeCheck],
@@ -219,7 +341,8 @@ for (const [name, run] of selected) {
   }
   results.push(result);
   if (!options.json) {
-    process.stdout.write(`\r${result.ok ? green("✔") : red("✘")} ${bold(result.title)} — ${result.summary}\n`);
+    const marker = result.ok ? (result.skipped === true ? dim("⊘") : green("✔")) : red("✘");
+    process.stdout.write(`\r${marker} ${bold(result.title)} — ${result.summary}\n`);
     for (const failure of result.failures) console.log(`  ${red("•")} ${failure.replace(/\n/g, "\n    ")}`);
   }
 }

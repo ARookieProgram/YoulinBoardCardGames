@@ -20,7 +20,7 @@ import {
   section,
   diffProtocol,
 } from "./lib/protocol.mjs";
-import { collectScripts, checkScriptSyntax } from "./lib/syntax.mjs";
+import { collectScripts, checkScriptSyntax, findStrayServerJavaScript, supportsTypeScriptCheck } from "./lib/syntax.mjs";
 import { buildSeat } from "./lib/smoke.mjs";
 
 test("parseFrontmatter reads the flat key/value subset", () => {
@@ -163,6 +163,87 @@ test("checkScriptSyntax does not execute the file", async () => {
     const file = join(dir, "sideeffect.js");
     await writeFile(file, "require('this-module-does-not-exist');\n");
     assert.equal((await checkScriptSyntax(file)).ok, true, "an unresolvable require must not fail a syntax check");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("checkScriptSyntax checks TypeScript with the type eraser, not the JS parser", async (t) => {
+  if (!supportsTypeScriptCheck()) {
+    t.skip("this Node has no module.stripTypeScriptTypes");
+    return;
+  }
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "dsh-gate-ts-"));
+  try {
+    const good = join(dir, "good.ts");
+    const bad = join(dir, "bad.ts");
+    const nonErasable = join(dir, "enum.ts");
+    await writeFile(good, "export function f(a: string): number { return a.length; }\n");
+    await writeFile(bad, "export function f(a: string): number { return a.length; \n");
+    // `enum` is not erasable, and the migration rule is that server/ only uses
+    // erasable TypeScript, so the gate must reject it.
+    await writeFile(nonErasable, "export enum E { A, B }\n");
+
+    assert.equal((await checkScriptSyntax(good)).ok, true, "valid TypeScript must pass");
+    const broken = await checkScriptSyntax(bad);
+    assert.equal(broken.ok, false, "a TypeScript syntax error must fail");
+    assert.ok(broken.error.length > 0, "a syntax error must carry a message");
+    const enumResult = await checkScriptSyntax(nonErasable);
+    assert.equal(enumResult.ok, false, "non-erasable TypeScript must fail");
+    assert.match(enumResult.error, /可擦除语法/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("findStrayServerJavaScript reports leftover .js under server/ only", async () => {
+  // `server/` is TypeScript: a `.js` beside its `.ts` twin would win Node's
+  // resolver and silently run the stale copy, so the gate must see it. Generated
+  // output (dist/) and vendored trees (node_modules/) are not stray.
+  const { mkdtemp, writeFile, mkdir, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const root = await mkdtemp(join(tmpdir(), "dsh-gate-stray-"));
+  try {
+    await mkdir(join(root, "server", "utils"), { recursive: true });
+    await mkdir(join(root, "server", "dist"), { recursive: true });
+    await mkdir(join(root, "server", "node_modules"), { recursive: true });
+    await writeFile(join(root, "server", "utils", "a.ts"), "export const a = 1;\n");
+    await writeFile(join(root, "server", "utils", "a.js"), "exports.a = 1;\n");
+    await writeFile(join(root, "server", "utils", "b.ts"), "export const b = 1;\n");
+    await writeFile(join(root, "server", "dist", "a.js"), "exports.a = 1;\n");
+    await writeFile(join(root, "server", "node_modules", "c.js"), "module.exports = 1;\n");
+
+    const stray = await findStrayServerJavaScript(root);
+    assert.deepEqual(
+      stray.map((file) => file.slice(root.length + 1)),
+      ["server/utils/a.js"],
+      "only first-party .js under server/ counts",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("collectScripts picks up .ts sources and skips .d.ts declarations", async () => {
+  const { mkdtemp, writeFile, mkdir, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "dsh-gate-collect-"));
+  try {
+    await mkdir(join(dir, "src"), { recursive: true });
+    await writeFile(join(dir, "src", "a.ts"), "export const a = 1;\n");
+    await writeFile(join(dir, "src", "types.d.ts"), "export interface A { x: number }\n");
+    await writeFile(join(dir, "src", "b.js"), "module.exports = 1;\n");
+    const files = await collectScripts(dir);
+    assert.deepEqual(
+      files.map((file) => file.slice(dir.length + 1)).sort(),
+      ["src/a.ts", "src/b.js"],
+      "both languages are source, declarations are not",
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

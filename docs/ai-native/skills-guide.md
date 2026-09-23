@@ -9,7 +9,7 @@ Harness 读取 `SKILL.md` 的 YAML frontmatter，按 `description` 判断何时�
 1. 项目根由 `.git` 标记 —— 技能**必须**放在本目录，放在 `client/` 或 `server/` 下不会被发现。
 2. 每个技能是 `<name>/SKILL.md`，frontmatter 必须含**非空**的 `name` 与 `description`。
 3. **`name` 必须与目录名完全一致**（`verify-gate/SKILL.md` 的 `name` 必须是 `verify-gate`）。
-4. 正文里可引用其他文件：用反引号包裹、以 `repo:` 开头（例如 `repo:server/utils/db.js`），
+4. 正文里可引用其他文件：用反引号包裹、以 `repo:` 开头（例如 `repo:server/utils/db.ts`），
    `npm run check:harness` 会校验这些路径真实存在。
 5. 正文过短（< 200 字符）或 `description` 过短（< 20 字符）会被门禁判为无效。
 6. **不要在 `.dsh/skills/` 根下放 `README.md` 之类的散装 `.md` 文件**：技能提供方会把根目录下
@@ -30,7 +30,7 @@ npm run check:harness
 | `server-architecture` | 改服务端代码、加 HTTP 接口、加或改 Socket.IO 推送事件 |
 | `game-rules` | 改听牌/胡牌/番型、动作流程、两份 `gamemgr_*` 的同步 |
 | `client-integration` | 改客户端组件、加事件处理器、改场景流程、判断哪些文件不能手改 |
-| `data-layer` | 改持久化、加 `db.js` 函数、改 SQL schema、排查数据问题 |
+| `data-layer` | 改持久化、加 `db.ts` 函数、改 SQL schema、排查数据问题 |
 
 ## 新增一个技能
 

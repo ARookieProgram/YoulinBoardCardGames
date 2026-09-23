@@ -12,8 +12,16 @@
     "socket.io": "^1.4.6"
   },
   "scripts": {
-    "account": "node account_server/app.js ../configs_mac.js",
-    "hall": "node hall_server/app.js ../configs_mac.js",
-    "game": "node game_server/app.js ../configs_mac.js"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "account": "node dist/account_server/app.js ../configs_mac.js",
+    "hall": "node dist/hall_server/app.js ../configs_mac.js",
+    "game": "node dist/game_server/app.js ../configs_mac.js"
+  },
+  "devDependencies": {
+    "@types/express": "4",
+    "@types/node": "22",
+    "typescript": "5"
   }
 }
