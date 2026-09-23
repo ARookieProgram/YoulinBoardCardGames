@@ -1,14 +1,21 @@
 {
-  "ver": "2.2.0",
+  "ver": "2.3.7",
   "uuid": "77751ff8-aec3-4571-af26-6c098d3c6b7a",
+  "importer": "texture",
   "type": "sprite",
   "wrapMode": "clamp",
   "filterMode": "bilinear",
   "premultiplyAlpha": false,
+  "genMipmaps": false,
+  "packable": true,
+  "width": 333,
+  "height": 93,
+  "platformSettings": {},
   "subMetas": {
     "btn_weixin": {
-      "ver": "1.0.3",
+      "ver": "1.0.6",
       "uuid": "07b178b4-e554-430a-8d6f-732fcac35b6b",
+      "importer": "sprite-frame",
       "rawTextureUuid": "77751ff8-aec3-4571-af26-6c098d3c6b7a",
       "trimType": "auto",
       "trimThreshold": 1,

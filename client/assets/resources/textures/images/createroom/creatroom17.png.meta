@@ -1,14 +1,21 @@
 {
-  "ver": "2.2.0",
+  "ver": "2.3.7",
   "uuid": "d533f107-b48c-458b-bbdd-97af6dcf0247",
+  "importer": "texture",
   "type": "sprite",
   "wrapMode": "clamp",
   "filterMode": "bilinear",
   "premultiplyAlpha": false,
+  "genMipmaps": false,
+  "packable": true,
+  "width": 165,
+  "height": 46,
+  "platformSettings": {},
   "subMetas": {
     "creatroom17": {
-      "ver": "1.0.3",
+      "ver": "1.0.6",
       "uuid": "fef69d00-9cf6-4d00-b7ae-bebb21662a8e",
+      "importer": "sprite-frame",
       "rawTextureUuid": "d533f107-b48c-458b-bbdd-97af6dcf0247",
       "trimType": "auto",
       "trimThreshold": 1,

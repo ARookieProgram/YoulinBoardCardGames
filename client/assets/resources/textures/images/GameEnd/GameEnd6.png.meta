@@ -1,14 +1,21 @@
 {
-  "ver": "2.2.0",
+  "ver": "2.3.7",
   "uuid": "fd379b81-c82c-419c-b55a-7acd43dfbbf7",
+  "importer": "texture",
   "type": "sprite",
   "wrapMode": "clamp",
   "filterMode": "bilinear",
   "premultiplyAlpha": false,
+  "genMipmaps": false,
+  "packable": true,
+  "width": 97,
+  "height": 29,
+  "platformSettings": {},
   "subMetas": {
     "GameEnd6": {
-      "ver": "1.0.3",
+      "ver": "1.0.6",
       "uuid": "1517fd6b-e1d5-41e2-9ca6-c0e716735a4f",
+      "importer": "sprite-frame",
       "rawTextureUuid": "fd379b81-c82c-419c-b55a-7acd43dfbbf7",
       "trimType": "auto",
       "trimThreshold": 1,

@@ -1,14 +1,21 @@
 {
-  "ver": "2.2.0",
+  "ver": "2.3.7",
   "uuid": "3c2e7a36-6cdd-44bf-ba08-25ffa70f95ec",
+  "importer": "texture",
   "type": "sprite",
   "wrapMode": "clamp",
   "filterMode": "bilinear",
   "premultiplyAlpha": false,
+  "genMipmaps": false,
+  "packable": true,
+  "width": 331,
+  "height": 23,
+  "platformSettings": {},
   "subMetas": {
     "wenzi002": {
-      "ver": "1.0.3",
+      "ver": "1.0.6",
       "uuid": "2822bb44-286f-40a1-9398-35a3bb0bd761",
+      "importer": "sprite-frame",
       "rawTextureUuid": "3c2e7a36-6cdd-44bf-ba08-25ffa70f95ec",
       "trimType": "auto",
       "trimThreshold": 1,

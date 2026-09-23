@@ -1,14 +1,21 @@
 {
-  "ver": "2.2.0",
+  "ver": "2.3.7",
   "uuid": "bf5b7d86-5a26-4ffd-9388-afbf458ed3b8",
+  "importer": "texture",
   "type": "sprite",
   "wrapMode": "clamp",
   "filterMode": "bilinear",
   "premultiplyAlpha": false,
+  "genMipmaps": false,
+  "packable": true,
+  "width": 34,
+  "height": 34,
+  "platformSettings": {},
   "subMetas": {
     "GameEnd18": {
-      "ver": "1.0.3",
+      "ver": "1.0.6",
       "uuid": "3dd40bbb-4cfc-430c-8f46-e9ea95313447",
+      "importer": "sprite-frame",
       "rawTextureUuid": "bf5b7d86-5a26-4ffd-9388-afbf458ed3b8",
       "trimType": "auto",
       "trimThreshold": 1,
