@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from aiohttp import web
@@ -166,6 +167,67 @@ def create_routes(config: dict[str, Any]) -> web.Application:
             return http.send(0, "ok", ret)
         return http.send(errcode, "room doesn't exist.")
 
+    async def on_create_single_room(request: web.Request) -> web.Response:
+        """单人模式建房：与 `/create_private_room` 相同，但强制带上 `single:1`。
+
+        差别只有两处：
+
+        1. 客户端传来的 conf 里补上 `single:1`，其余选项照用——玩法（血流成河 / 血战到底）、
+           底分、番数还是玩家在 CreateRoom 面板里选的那一套；
+        2. conf 重新序列化后再交给游戏服。大厅服与游戏服各自算一次 md5，用的必须是
+           **同一个字符串**，这里传下去的就是那一个。
+
+        游戏服收到 `single` 后会预置三个机器人、并跳过房卡校验（见 `roommgr.create_room`）。
+        """
+        failed = check_account(request)
+        if failed is not None:
+            return failed
+
+        account = http.query_string(request, "account")
+        conf_raw = request.query.get("conf")
+        if conf_raw is None:
+            return http.send(-1, "parameters don't match api requirements.")
+        try:
+            conf = json.loads(conf_raw)
+        except ValueError:
+            return http.send(-1, "invalid conf.")
+        if not isinstance(conf, dict):
+            return http.send(-1, "invalid conf.")
+        conf["single"] = 1
+        conf_str = json.dumps(conf, separators=(",", ":"))
+
+        user = await db.get_user_data(account)
+        if user is None:
+            return http.send(1, "system error")
+
+        user_id = user.get("userid")
+        name = user.get("name")
+        room_id = await db.get_room_id_of_user(user_id)
+        if room_id is not None:
+            return http.send(-1, "user is playing in room now.")
+
+        err, room_id = await room_service.create_room(account, user_id, conf_str)
+        if err != 0 or room_id is None:
+            return http.send(err, "create failed.")
+
+        errcode, enter_info = await room_service.enter_room(user_id, name, room_id)
+        if enter_info is not None:
+            ret: dict[str, Any] = {
+                "roomid": room_id,
+                "ip": enter_info.ip,
+                "port": enter_info.port,
+                "token": enter_info.token,
+                "time": now_ms(),
+            }
+            ret["sign"] = crypto.md5(
+                str(ret["roomid"])
+                + str(ret["token"])
+                + str(ret["time"])
+                + _require_config()["ROOM_PRI_KEY"]
+            )
+            return http.send(0, "ok", ret)
+        return http.send(errcode, "room doesn't exist.")
+
     async def on_enter_private_room(request: web.Request) -> web.Response:
         room_id = http.query_string(request, "roomid")
         if room_id is None:
@@ -259,6 +321,7 @@ def create_routes(config: dict[str, Any]) -> web.Application:
     app.router.add_get("/login", on_login)
     app.router.add_get("/create_user", on_create_user)
     app.router.add_get("/create_private_room", on_create_private_room)
+    app.router.add_get("/create_single_room", on_create_single_room)
     app.router.add_get("/enter_private_room", on_enter_private_room)
     app.router.add_get("/get_history_list", on_get_history_list)
     app.router.add_get("/get_games_of_room", on_get_games_of_room)

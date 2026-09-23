@@ -383,4 +383,9 @@ interface RoomCreateConf {
     dianganghua: string | number;
     menqing: number | boolean;
     tiandihu: number | boolean;
+    /**
+     * 单人模式（人机）：1 表示走 `/create_single_room`，服务端会补三个机器人并免房卡。
+     * 普通建房不带这个字段。
+     */
+    single?: number;
 }

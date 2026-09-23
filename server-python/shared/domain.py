@@ -73,6 +73,9 @@ class RoomConf:
     maxGames: int = 4
     #: 房主 userId。
     creator: int = 0
+    #: 单人模式（人机）开关：1 表示建房时自动补三个机器人、不扣房卡。
+    #: 只有 `/create_single_room` 会带上它，普通房间恒为 0。
+    single: int = 0
 
 
 @dataclass

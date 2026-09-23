@@ -31,6 +31,8 @@ from shared.domain import (
 )
 from utils import db
 
+from game_server import robotmgr
+
 
 @dataclass
 class UserLocation:
@@ -86,6 +88,10 @@ def room_conf_from_dict(data: dict[str, Any]) -> RoomConf:
         maxFan=data.get("maxFan", 0),
         maxGames=data.get("maxGames", 0),
         creator=data.get("creator", 0),
+        # 单人模式开关。正常单人房是新建后立刻打完的，`base_info` 里并没有写它
+        # （`utils/db._conf_to_wire` 的键集与 Node 版保持一致，见那里的注释），
+        # 这里读取只为向前兼容：万一以后把它落库了，还原出来的房间仍然认得自己是单人房。
+        single=data.get("single", 0),
     )
 
 
@@ -133,6 +139,33 @@ def construct_room_from_db(dbdata: dict[str, Any]) -> RoomInfo:
     return room_info
 
 
+async def _seat_robots(room_info: RoomInfo) -> None:
+    """单人模式：把三个机器人安排到 1~3 号座位。
+
+    它们和真人座位的**唯一区别是没有 socket**：
+
+    * 写 `user_location`，这样 `get_user_room` / `get_user_seat`（广播、结算都查它）照常可用；
+    * `robotmgr.register` 标记身份，`usermgr.is_online` 据此对它们恒返回 True，
+      `gamemgr.set_ready` 的"四人齐"判断才能通过、牌局才开得起来；
+    * `ready=True`，真人登录时 `set_ready` 一进来就能开局，不需要额外的准备流程；
+    * `db.update_seat_info` 与真人落座走同一条路，`t_rooms` 里的座位信息保持一致。
+
+    机器人的 userId 由 `robotmgr.allocate_ids` 从 900000 起分配，不会和 `t_users` 的自增主键撞号。
+    """
+    robot_ids = robotmgr.allocate_ids(3)
+    for offset, robot_id in enumerate(robot_ids):
+        seat_index = offset + 1
+        if seat_index >= len(room_info.seats):
+            break
+        seat = room_info.seats[seat_index]
+        seat.userId = robot_id
+        seat.name = robotmgr.robot_name(offset)
+        seat.ready = True
+        robotmgr.register(robot_id)
+        user_location[robot_id] = UserLocation(roomId=room_info.id, seatIndex=seat_index)
+        await db.update_seat_info(room_info.id, seat_index, robot_id, "", seat.name)
+
+
 async def create_room(
     creator: int,
     room_conf: dict[str, Any],
@@ -175,7 +208,10 @@ async def create_room(
 
     # 注意：索引可能越界（`> len` 而不是 `>= len`），越界时取值会抛异常——与原实现一致。
     cost = JU_SHU_COST[room_conf["jushuxuanze"]]
-    if cost > gems:
+    # 单人模式（人机）不扣房卡：真人一个人打，也拿不到别人出的房卡钱，
+    # 所以跳过"房卡够不够"的校验（房间每次开局时的扣费同样跳过，见 gamemgr 的 do_game_over）。
+    is_single = room_conf.get("single") is not None and room_conf.get("single") != 0
+    if not is_single and cost > gems:
         return 2222, None
 
     async def fn_create() -> tuple[int, str | None]:
@@ -209,6 +245,7 @@ async def create_room(
                 maxFan=MAX_FAN[room_conf["zuidafanshu"]],
                 maxGames=JU_SHU[room_conf["jushuxuanze"]],
                 creator=creator,
+                single=1 if is_single else 0,
             ),
             gameMgr=load_game_manager(room_conf["type"]),
         )
@@ -241,6 +278,10 @@ async def create_room(
             print(uuid)
             rooms[room_id] = room_info
             _total_rooms += 1
+            if is_single:
+                # 单人模式：先把 1~3 号座位发给机器人，0 号位留给建房者，
+                # 这样大厅服随后调 `/enter_room` 时真人会自然坐到 0 号位。
+                await _seat_robots(room_info)
             return 0, room_id
         return 3, None
 

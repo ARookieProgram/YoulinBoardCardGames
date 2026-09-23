@@ -99,8 +99,12 @@
 | --- | --- | --- |
 | 账号服 | `repo:server/account_server/account_server.ts` | `/guest`、`/register`、登录 |
 | 账号服（代理） | `repo:server/account_server/dealer_api.ts` | `/get_user_info` 等 |
-| 大厅服 | `repo:server/hall_server/client_service.ts` | `/login`、`/create_user`、`/create_private_room`、`/enter_private_room`、`/get_history_list`、`/get_games_of_room`、`/get_detail_of_game`、`/get_user_status`、`/get_message` |
+| 大厅服 | `repo:server/hall_server/client_service.ts` | `/login`、`/create_user`、`/create_private_room`、`/enter_private_room`、`/get_history_list`、`/get_games_of_room`、`/get_detail_of_game`、`/get_user_status`、`/get_message`；`/create_single_room`（单人模式，**目前只有 Python 版 `repo:server-python/hall_server/client_service.py` 有**） |
 | 游戏服（内部） | `repo:server/game_server/http_service.ts` | `/get_server_info`、`/create_room`、`/enter_room`、`/is_room_runing`（**四个都校验 `sign`**；`/get_server_info` 用 `md5(serverid + ROOM_PRI_KEY)`） |
+
+> `/create_single_room` 复用 `/create_private_room` 的签名与返回结构，只在 conf 里强制补一个
+> `single: 1`；Node 版大厅服没有这个路由，客户端对 Node 版点"单人模式"会拿到 404。
+> 详见 `repo:README.md` §7.5。
 
 **HTTP 路径的增删不会让门禁报红。** 改这些接口时请人工双向搜索调用方
 （客户端搜 `cc.vv.http.sendRequest`，服务端搜 `http.send` / `res.send`）。

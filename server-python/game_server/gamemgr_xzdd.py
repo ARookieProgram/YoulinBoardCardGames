@@ -48,7 +48,7 @@ from utils.jscompat import (
     now_ms,
     splice,
 )
-from game_server import mjutils, roommgr, usermgr
+from game_server import mjutils, robotmgr, roommgr, usermgr
 
 # ---- 模块级状态（与 TS 一一对应）----
 
@@ -378,6 +378,11 @@ async def send_operations(game: GameState, seat_data: GameSeat, pai: int) -> Non
         # 原实现只传两个实参；这里补 None 后函数体内拿到的仍是 undefined，
         # socket.emit(event,undefined) 的行为完全一致。
         await usermgr.send_msg(seat_data.userId, "game_action_push", None)
+
+
+    # 人机：这个座位刚被要求做决定（有操作，或者轮到他出牌）。不是机器人时 schedule 什么都不做。
+    # 放在 if/else 之外，是因为"轮到出牌但没有任何可操作项"的那一路只会走 else 分支。
+    robotmgr.schedule(game, seat_data, _ROBOT_ACTIONS)
 
 
 def move_to_next_user(game: GameState, next_seat: int | None = None) -> None:
@@ -845,6 +850,10 @@ async def do_game_over(game: GameState | None, user_id: int, force_end: bool = F
             sd = game.gameSeats[i]
 
             rs.ready = False
+            # 人机：机器人不需要真人点"准备"，下一局直接算已准备。
+            # 否则第一局结束后 set_ready 的"四人齐"判断永远差三家，牌局开不了第二局。
+            if robotmgr.is_robot(rs.userId):
+                rs.ready = True
             rs.score += sd.score
             rs.numZiMo += sd.numZiMo
             rs.numJiePao += sd.numJiePao
@@ -939,7 +948,9 @@ async def do_game_over(game: GameState | None, user_id: int, force_end: bool = F
             cost = 2
             if room_info.conf.maxGames == 8:
                 cost = 3
-            await db.cost_gems(game.gameSeats[0].userId, cost)
+            # 单人模式（人机）不扣房卡：整局都是自己跟机器人打，跳过这次扣费。
+            if not room_info.conf.single:
+                await db.cost_gems(game.gameSeats[0].userId, cost)
 
         is_end = room_info.numOfGames >= room_info.conf.maxGames
         await fn_notice_result(is_end)
@@ -1251,6 +1262,11 @@ async def begin(room_id: str) -> None:
             await usermgr.send_msg(s.userId, "game_dingque_push", None)
 
 
+        # 人机：开局这一步机器人也要跟着走——换三张房里是换牌，普通房里是定缺。
+        # `take_action` 按 `game.state` 自己分派，所以两种玩法共用同一个钩子。
+        robotmgr.schedule(game, game.gameSeats[i], _ROBOT_ACTIONS)
+
+
 # `huanpai_notify` 与 `game_huanpai_over_push` 的载荷字段：
 # si / huanpais / method（原实现在这几处复用了同一个变量名 rd，这里也沿用同一个 dict 名）。
 
@@ -1365,6 +1381,10 @@ async def huan_san_zhang(user_id: int, p1: int, p2: int, p3: int) -> None:
         await usermgr.send_msg(user_id, "game_holds_push", s[i].holds)
         # 通知准备定缺
         await usermgr.send_msg(user_id, "game_dingque_push", None)
+
+
+        # 人机：换牌结束、进入定缺，机器人也要定缺（真人会走 socket 的 dingque 事件）。
+        robotmgr.schedule(game, s[i], _ROBOT_ACTIONS)
 
 
 async def ding_que(user_id: int, type: int) -> None:
@@ -1593,6 +1613,10 @@ async def peng(user_id: int) -> None:
     # 广播通知玩家出牌方
     seat_data.canChuPai = True
     await usermgr.broacast_in_room("game_chupai_push", seat_data.userId, seat_data.userId, True)
+
+
+    # 人机：碰完轮到这位玩家打牌。这里没有走 send_operations，所以要单独叫一次机器人。
+    robotmgr.schedule(game, seat_data, _ROBOT_ACTIONS)
 
 
 def is_playing(user_id: int) -> bool:
@@ -2114,6 +2138,20 @@ async def _update_loop() -> None:
 
 # 原文件末尾有一段被注释掉的调试代码（mokgame / mokseat 手写座位，用来单独试 checkCanAnGang），
 # 只在本地调试时用过，这里保留说明，不参与运行。
+
+# 人机驱动用的动作表：把本模块的动作函数交给 `robotmgr`，由它在流程钩子点上回调。
+# 放在文件末尾（此时所有函数都已定义），与上面的契约自检相邻；函数体里对 `_ROBOT_ACTIONS`
+# 的引用是运行时的全局查找，所以定义顺序不影响调用。
+_ROBOT_ACTIONS = robotmgr.RobotActions(
+    huan_san_zhang=huan_san_zhang,
+    ding_que=ding_que,
+    chu_pai=chu_pai,
+    peng=peng,
+    gang=gang,
+    hu=hu,
+    guo=guo,
+)
+
 
 # 自检：本模块必须提供 roommgr 通过 `GameManagerProtocol` 调用的全部函数。
 # 对应 TS 末尾的 `_gameManagerContract`（Node 版由 tsc 在编译期检查；Python 没有编译期检查，

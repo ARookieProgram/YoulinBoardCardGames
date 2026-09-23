@@ -193,6 +193,25 @@ if game.conf.menqing:           # 房间开门清时才赋值，值可能是 Fal
 （`if(userData.zhongzhang)`，见 `client/assets/scripts/components/GameOver.ts`），
 所以不产生可观察差异。要完全一致就得把"是否赋过值"单独记下来，那是一次独立的改动。
 
+### 4.6 单人模式（人机）是 Python 版独有的功能
+
+`game_server/robotmgr.py`、`roommgr._seat_robots`、大厅服的 `/create_single_room` 目前
+**只有 `server-python/` 有**，Node 版 `server/` 没有对应实现。这不是移植遗漏，而是这一版
+先只做了 Python 侧：
+
+- 客户端（`client/assets/scripts/components/CreateRoom.ts`）已经接好"单人模式"开关；
+  对 Node 版大厅服点它会拿到 404，此时两套服务端在这一点上**不对等**。
+- 机器人是"没有 socket 的座位"：`usermgr.is_online` 对 `robotmgr` 登记过的 userId 恒返回
+  True（`set_ready` 的"四人齐"判断要用），推送则因查不到连接被丢弃。
+- gamemgr 侧的钩子只有四处：`send_operations`（覆盖出牌与碰杠胡的响应）、`begin`（开局换牌/定缺）、
+  `huan_san_zhang`（换牌结束转定缺）、`peng`（碰完出牌）。两份 gamemgr 都要改。
+- `do_game_over` 里机器人保持"已准备"，否则第一局之后 `set_ready` 永远差三家、开不了第二局。
+- `conf.single` **不落库**（`utils/db._conf_to_wire` 的键集与 Node 版一致），所以进程重启后
+  从库里还原的单人房会丢掉这个标记——单人房本来就是新建即打完的，这一点不影响正常流程。
+
+要补 Node 版，按 `robotmgr.py` 的策略与上面四个钩子点逐个照搬即可；
+补完请同步删掉 README §7.5 与本文这一节的"仅 Python"说明。
+
 ## 5. 改完怎么验证
 
 ### 5.1 离线测试（零依赖，必跑）

@@ -22,6 +22,10 @@ export default class CreateRoom extends cc.Component {
 
     // 运行时动态字段，不是 Creator 的序列化属性；declare 只做类型说明，没有补初始值。
     declare lastType: string | undefined;
+    /** 单人模式开关：开时建房走 `/create_single_room`，服务端自动补三个机器人。 */
+    declare _singleMode: boolean;
+    /** 单人模式开关上的文案标签。 */
+    declare _singleModeLabel: cc.Label | null;
 
     // use this for initialization
     onLoad() {
@@ -38,10 +42,67 @@ export default class CreateRoom extends cc.Component {
                 this._leixingxuanze.push(n);
             }
         }
+
+        this.setupSingleModeToggle();
     }
 
     onBtnBack() {
         this.node.active = false;
+    }
+
+    /**
+     * 单人模式开关（人机）：
+     *
+     * 勾上后点"确定"走 `/create_single_room`，服务端建房时会预置三个机器人并免房卡；
+     * 不勾就是原来的私人房流程。
+     *
+     * 这个按钮是**代码动态建的**，不改 `hall.fire`：场景文件由 Creator 维护，
+     * 手改会破坏 uuid 引用。美术资源直接借用同一个面板上"确定"按钮的 SpriteFrame，
+     * 所以看起来和编辑器里的按钮一致。
+     */
+    setupSingleModeToggle() {
+        this._singleMode = false;
+        this._singleModeLabel = null;
+
+        var node = new cc.Node('single_mode');
+        // 尺寸与下面借用的 btn_ok 美术资源一致，避免拉伸变形。
+        node.setContentSize(288, 77);
+        // 放在"确定 / 取消"左边的空位上（btn_ok 在面板根的 (0,-278)、宽 288）。
+        node.setPosition(-360, -278, 0);
+        this.node.addChild(node);
+
+        var okNode = this.node.getChildByName('btn_ok');
+        if (okNode) {
+            var okSprite = okNode.getComponent(cc.Sprite);
+            if (okSprite && okSprite.spriteFrame) {
+                var sprite = node.addComponent(cc.Sprite);
+                sprite.spriteFrame = okSprite.spriteFrame;
+                sprite.type = cc.Sprite.Type.SIMPLE;
+                sprite.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+            }
+        }
+
+        var labelNode = new cc.Node('title');
+        labelNode.setPosition(0, 0, 0);
+        node.addChild(labelNode);
+        this._singleModeLabel = labelNode.addComponent(cc.Label);
+        this._singleModeLabel.fontSize = 24;
+
+        node.addComponent(cc.Button);
+        cc.vv.utils.addClickEvent(node, this.node, "CreateRoom", "onSingleModeClicked");
+        this.refreshSingleModeLabel();
+    }
+
+    /** 单人模式开关的点击处理（由上面的动态按钮触发）。 */
+    onSingleModeClicked() {
+        this._singleMode = !this._singleMode;
+        this.refreshSingleModeLabel();
+    }
+
+    refreshSingleModeLabel() {
+        if (this._singleModeLabel) {
+            this._singleModeLabel.string = this._singleMode ? "单人模式：开" : "单人模式：关";
+        }
     }
 
     onBtnOK() {
@@ -123,14 +184,21 @@ export default class CreateRoom extends cc.Component {
         }
         conf!.type = type;
 
+        // 单人模式：同一个建房面板，只是换一个接口——服务端会在建房时补三个机器人。
+        var singleMode = this._singleMode === true;
+        var path = singleMode ? "/create_single_room" : "/create_private_room";
+        if (singleMode) {
+            conf!.single = 1;
+        }
+
         var data = {
             account: cc.vv.userMgr.account,
             sign: cc.vv.userMgr.sign,
             conf: JSON.stringify(conf)
         };
         console.log(data);
-        cc.vv.wc.show("正在创建房间");
-        cc.vv.http.sendRequest("/create_private_room", data, onCreate);
+        cc.vv.wc.show(singleMode ? "正在创建单人房间" : "正在创建房间");
+        cc.vv.http.sendRequest(path, data, onCreate);
     }
 
     constructSCMJConf(): Omit<RoomCreateConf, "type"> {

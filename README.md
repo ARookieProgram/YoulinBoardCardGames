@@ -43,6 +43,8 @@
 - 碰 / 杠（明杠、暗杠、点杠）/ 胡（点炮、自摸）/ 过
 - 房卡房间：底分（`difen`）、自摸加底（`zimo`）、将对（`jiangdui`）、最大番数（`zuidafanshu`）、
   局数（`jushuxuanze`，4 / 8 局）、点杠花（`dianganghua`）、门清（`menqing`）、天地胡（`tiandihu`）
+- **单人模式（人机）**：建房面板里打开"单人模式"，服务端自动补三个机器人陪打，免房卡
+  （目前只在 Python 服务端实现，见 §7.5）
 
 **大厅与社交**
 
@@ -296,6 +298,30 @@ ACTION_GANG   = 4   ACTION_HU    = 5   ACTION_ZIMO = 6
 
 映射：`difen → DI_FEN[1,2,5]`、`zuidafanshu → MAX_FAN[3,4,5]`、`jushuxuanze → JU_SHU[4,8]`、
 `huansanzhang → hsz`。`createRoom` 会校验入参非空，缺任何一项直接建房失败。
+单人模式会在入参 `roomConf` 里多带一个 `single: 1`（Python 版用它决定是否补机器人、免房卡，
+见 §7.5）；它**不落库**，`base_info` 的键集与 Node 版保持一致。
+
+### 7.5 单人模式（人机）
+
+大厅建房面板底部有一个**代码动态生成**的"单人模式"开关（`client/assets/scripts/components/CreateRoom.ts`
+的 `setupSingleModeToggle`，不改 `hall.fire`）。打开后：
+
+1. 客户端仍然提交同一份 `conf`，只是多带 `single: 1`，并改调大厅服的 `/create_single_room`；
+2. 大厅服把 `single: 1` 写进 conf 后转给游戏服（与 `/create_private_room` 同一套签名）；
+3. 游戏服建房时预置三个机器人并跳过房卡校验，真人进房坐 0 号位，登录后四人齐、直接开局。
+
+机器人是**没有 socket 的普通座位**：`roommgr._seat_robots` 把 1~3 号座位写进 `user_location`
+并 `ready=True`，`usermgr.is_online` 对它们恒返回 True（否则 `set_ready` 的"四人齐"判断过不去），
+推送则因查不到连接被静默丢弃。真正的出牌由 `game_server/robotmgr.py` 驱动：gamemgr 在
+`send_operations` / `begin` / `huan_san_zhang` / `peng` 四个钩子点调用 `robotmgr.schedule(...)`，
+机器人延迟一小段时间后按"能胡就胡 / 能杠就杠 / 能碰就碰 / 先打缺门再打孤张"的确定性策略回调
+gamemgr 的动作函数。
+
+> **这是 Python 服务端独有的功能**（`server-python/`）。Node 版 `server/` 没有实现单人模式，
+> 因此目前两套服务端在这一点上不对等；客户端对 Node 版点"单人模式"会拿到 404。
+
+离线证据是 `server-python/tests/test_robot.py`：策略单测 + 四个座位全交给机器人的整局模拟
+（两份 gamemgr × 有无换三张），另有一条"打完一局后机器人保持已准备、第二局开得起来"的回归。
 
 ---
 

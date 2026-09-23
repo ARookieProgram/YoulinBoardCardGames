@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from game_server import roommgr
+from game_server import robotmgr, roommgr
 from game_server.sio_server import NO_DATA, Socket
 
 #: userId -> 连接。断开后 delete，因此值可能不存在。
@@ -50,7 +50,14 @@ def get(user_id: int) -> Socket | None:
 
 
 def is_online(user_id: int) -> bool:
-    """玩家是否在线。"""
+    """玩家是否在线。
+
+    单人模式里的机器人没有 socket，但在"牌局能不能开"这件事上必须算在线
+    （`gamemgr.set_ready` 的四人齐判断查的就是这里），所以对它们恒返回 True。
+    它们的推送仍然查不到连接、被 `send_msg` / `broacast_in_room` 静默丢弃。
+    """
+    if robotmgr.is_robot(user_id):
+        return True
     return _user_list.get(user_id) is not None
 
 
