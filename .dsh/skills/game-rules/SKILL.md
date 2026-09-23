@@ -104,10 +104,10 @@ var ACTION_ZIMO   = 6;   // 自摸
 
 客户端**不做规则计算**，只做展示与本地交互态。相关文件：
 
-- `repo:client/assets/scripts/GameNetMgr.js` —— 对局状态机（手牌、轮次、定缺、结算快照）。
-- `repo:client/assets/scripts/components/MJGame.js` —— 对局主控 UI（886 行）。
-- `repo:client/assets/scripts/components/DingQue.js`、`HuanSanZhang.js`、`PengGangs.js`、
-  `Seat.js` —— 定缺、换三张、碰杠胡按钮、座位渲染。
+- `repo:client/assets/scripts/GameNetMgr.ts` —— 对局状态机（手牌、轮次、定缺、结算快照）。
+- `repo:client/assets/scripts/components/MJGame.ts` —— 对局主控 UI（886 行）。
+- `repo:client/assets/scripts/components/DingQue.ts`、`HuanSanZhang.ts`、`PengGangs.ts`、
+  `Seat.ts` —— 定缺、换三张、碰杠胡按钮、座位渲染。
 
 因此**改规则只动服务端**；只有当新增状态需要展示时才动客户端，并且要同步新增推送事件
 （见 `repo:.dsh/skills/server-architecture/SKILL.md` 与 `repo:docs/ai-native/protocol.md`）。

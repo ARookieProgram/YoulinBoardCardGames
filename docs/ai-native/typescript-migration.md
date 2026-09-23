@@ -1,5 +1,9 @@
 # 服务端 TypeScript 迁移规范
 
+> **客户端请看 `repo:docs/ai-native/client-typescript-migration.md`。** 客户端的迁移目标与服务端一致
+> （严格类型、尽量不用 `any`、行为不变），但它没有构建步骤、跑在 Creator 的 `cc.Class` / `cc.vv`
+> 体系里，所以规则另写一份；两边共用的只有"可擦除语法 + no-any 审计"这两条门禁。
+
 本文是 `repo:server/` 从 2016 年 ES5 CommonJS JavaScript 迁移到 TypeScript 时定下的**统一约定**，
 也是后续维护者理解这套代码为什么长这样的入口。迁移的硬要求：**严格类型、尽量不用 `any`、行为不变**。
 

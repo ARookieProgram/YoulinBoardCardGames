@@ -1,0 +1,24 @@
+{
+    "compilerOptions": {
+        "target": "es6",
+        "module": "commonjs",
+        "strict": true,
+        "experimentalDecorators": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "types": []
+    },
+    "include": [
+        "creator.d.ts",
+        "types/**/*.d.ts",
+        "assets/scripts/**/*.ts"
+    ],
+    "exclude": [
+        "node_modules",
+        "library",
+        "local",
+        "settings",
+        "temp",
+        "build"
+    ]
+}

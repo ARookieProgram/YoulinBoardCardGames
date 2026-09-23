@@ -21,7 +21,8 @@
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { collectScripts, checkScriptSyntax, displayPath, exists, findStrayServerJavaScript } from "./lib/syntax.mjs";
+import { collectScripts, checkScriptSyntax, displayPath, exists, findStrayServerJavaScript, findStrayClientJavaScript } from "./lib/syntax.mjs";
+import { checkClientAssetIntegrity } from "./lib/assets.mjs";
 import { checkHarness } from "./lib/harness.mjs";
 import { checkProtocol } from "./lib/protocol.mjs";
 import { runSmoke } from "./lib/smoke.mjs";
@@ -76,14 +77,32 @@ async function syntaxCheck() {
     );
   }
 
+  // `client/` is TypeScript as well; a leftover `.js` would sit beside its `.ts`
+  // twin and nobody could tell which one Creator imported.
+  const strayClient = await findStrayClientJavaScript(ROOT);
+  for (const file of strayClient) {
+    failures.push(
+      `${displayPath(ROOT, file)}\n    client/ 也已全量迁移到 TypeScript：请把同名的 .ts 补全并删除这个 .js` +
+        `（vendored 的 assets/scripts/3rdparty/ 不在此列）。`,
+    );
+  }
+
+  // Renaming a script is only safe when its `.meta` (and therefore its uuid) comes
+  // along: a scene refers to a script component by compressed uuid, so a rebuilt
+  // meta silently drops the component from the node. `tsc` cannot see this.
+  const assets = await checkClientAssetIntegrity(ROOT);
+  for (const failure of assets.failures) failures.push(failure);
+
   return {
     name: "syntax",
-    title: "JavaScript / TypeScript syntax",
+    title: "Source syntax & client script bindings",
     ok: failures.length === 0,
     summary:
       `${targets.length - skipped.length} files parsed` +
       (skipped.length === 0 ? "" : `, ${skipped.length} skipped (Node too old for .ts)`) +
-      (stray.length === 0 ? "" : `, ${stray.length} stray server .js`),
+      (stray.length === 0 ? "" : `, ${stray.length} stray server .js`) +
+      (strayClient.length === 0 ? "" : `, ${strayClient.length} stray client .js`) +
+      (assets.failures.length === 0 ? "" : `, ${assets.failures.length} broken script bindings`),
     failures,
   };
 }
@@ -103,10 +122,9 @@ async function syntaxCheck() {
  * @returns {Promise<object>} check result.
  */
 async function typesCheck() {
-  const serverDir = join(ROOT, "server");
   const audit = await auditNoAnyEscapeHatches();
 
-  const tsc = join(serverDir, "node_modules/typescript/bin/tsc");
+  const tsc = join(ROOT, "server/node_modules/typescript/bin/tsc");
   if (!(await exists(tsc))) {
     return {
       name: "types",
@@ -121,10 +139,43 @@ async function typesCheck() {
     };
   }
 
+  // Both first-party trees are TypeScript and share one compiler. `server/` keeps
+  // its own tsconfig (emits to dist/); `client/`'s tsconfig only serves this
+  // check and the editor — Creator compiles the client itself.
+  const projects = [
+    { label: "server/", cwd: join(ROOT, "server") },
+    { label: "client/", cwd: join(ROOT, "client") },
+  ];
+  const failures = [...audit.failures];
+  const status = [];
+  for (const project of projects) {
+    const run = await runTypeScript(tsc, project.cwd);
+    status.push(`${project.label}${run.code === 0 ? " ok" : " FAIL"}`);
+    if (run.code !== 0) {
+      failures.push(`\n${project.label} tsc --noEmit（strict）报错：\n${run.output}`);
+    }
+  }
+
+  return {
+    name: "types",
+    title: "TypeScript strict type-check",
+    ok: failures.length === 0,
+    summary: `${audit.files} 个 .ts 无 any / 类型逃生舱；tsc（strict）：${status.join("、")}`,
+    failures,
+  };
+}
+
+/**
+ * Run the repository's TypeScript compiler against one project.
+ * @param {string} tsc absolute path to the compiler entry point.
+ * @param {string} cwd project directory holding `tsconfig.json`.
+ * @returns {Promise<{ code: number, output: string }>} exit code and trimmed output.
+ */
+async function runTypeScript(tsc, cwd) {
   const { spawn } = await import("node:child_process");
   const run = await new Promise((resolve) => {
     const child = spawn(process.execPath, [tsc, "--noEmit", "-p", "tsconfig.json"], {
-      cwd: serverDir,
+      cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -132,21 +183,7 @@ async function typesCheck() {
     child.stderr.on("data", (chunk) => (output += chunk));
     child.on("close", (code) => resolve({ code, output }));
   });
-
-  const lines = run.output.split("\n").filter((line) => line.trim() !== "");
-  const failures = [...audit.failures];
-  if (run.code !== 0) failures.push(lines.slice(0, 60).join("\n"));
-
-  return {
-    name: "types",
-    title: "TypeScript strict type-check",
-    ok: failures.length === 0,
-    summary:
-      run.code === 0
-        ? `server/ ${audit.files} 个 .ts：tsc --noEmit（strict）无错误，且无 any / @ts-ignore`
-        : `${lines.length} 行 tsc 输出`,
-    failures,
-  };
+  return { code: run.code, output: run.output.split("\n").filter((line) => line.trim() !== "").slice(0, 60).join("\n") };
 }
 
 /** Type-system escape hatches this repository does not accept. */
@@ -169,7 +206,11 @@ const FORBIDDEN_TYPE_PATTERNS = [
  */
 async function auditNoAnyEscapeHatches() {
   const { readFile } = await import("node:fs/promises");
-  const files = (await collectScripts(join(ROOT, "server"))).filter((file) => file.endsWith(".ts"));
+  const serverFiles = await collectScripts(join(ROOT, "server"));
+  const clientFiles = await collectScripts(join(ROOT, "client"), {
+    exclude: ["/assets/scripts/3rdparty/"],
+  });
+  const files = [...serverFiles, ...clientFiles].filter((file) => file.endsWith(".ts"));
   const failures = [];
 
   for (const file of files) {

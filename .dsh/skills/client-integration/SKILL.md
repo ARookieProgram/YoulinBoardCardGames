@@ -21,9 +21,9 @@ Cocos Creator **2.4.15** 客户端。改客户端的难点不在写 UI，而在*
 ```
 服务端 userMgr.sendMsg / broacastInRoom(event, data)
    ↓  Socket.IO
-Net.js            cc.vv.net.handlers[event] 的包装函数（自动 JSON.parse 字符串）
+Net.ts            cc.vv.net.handlers[event] 的包装函数（自动 JSON.parse 字符串）
    ↓
-GameNetMgr.js     cc.vv.net.addHandler(event, function(data){ ... self.dispatchEvent(event, data); })
+GameNetMgr.ts     cc.vv.net.addHandler(event, function(data){ ... self.dispatchEvent(event, data); })
    ↓
 场景组件          this.node.on(event, function(data){ ... })      ← 改 UI 的地方
 ```
@@ -33,11 +33,11 @@ GameNetMgr.js     cc.vv.net.addHandler(event, function(data){ ... self.dispatchE
 - `cc.vv.net.addHandler(event, fn)` 的包装层会对**非 `disconnect` 的字符串 data 自动
   `JSON.parse`**，所以处理器里拿到的一般已经是对象。重复注册同名事件会被忽略并打印日志。
 - **`addHandler` 只注册一次**。注册时机通常在 `GameNetMgr.onLoad` 或组件 `onLoad`，
-  而 `Net.js` 会把已注册的 handler 重放到新 socket 上（`for(var key in this.handlers)`），
+  而 `Net.ts` 会把已注册的 handler 重放到新 socket 上（`for(var key in this.handlers)`），
   所以断线重连后不需要重新注册。
 - 组件用 `this.node.on(event, fn)` 订阅 `GameNetMgr` 派发的事件。
   **同一个事件名在代码里出现两次是正常的**：一次 `addHandler`（注册），一次 `dispatchEvent`（派发）。
-- 心跳：`Net.js` 定时 `send("game_ping")`，服务端回 `game_pong`，`Net.js` 直接 `sio.on('game_pong')`
+- 心跳：`Net.ts` 定时 `send("game_ping")`，服务端回 `game_pong`，`Net.ts` 直接 `sio.on('game_pong')`
   处理并计算延迟。这条路径**不走** `addHandler`，`protocol` 检查已覆盖。
 
 改完后必须跑：
@@ -52,24 +52,24 @@ npm run check:syntax     # 客户端脚本能解析
 | 需求 | 位置 |
 | --- | --- |
 | 发一个 socket 消息 | `cc.vv.net.send(event, data)` |
-| 发一个 HTTP 请求 | `cc.vv.http.sendRequest(path, data, callback)`（基地址在 `HTTP.js` 第 2 行，登录后切到大厅） |
+| 发一个 HTTP 请求 | `cc.vv.http.sendRequest(path, data, callback)`（基地址在 `HTTP.ts` 第 2 行，登录后切到大厅） |
 | 对局状态读写 | `cc.vv.gameNetMgr`（`seats`、`turn`、`dingque`、`gamestate`…） |
-| 弹窗/提示 | `Alert.js`、`NoticeTip.js`、`PopupMgr.js` |
-| 座位表现 | `Seat.js`（手牌/弃牌/碰杠渲染）、`Folds.js`（牌河） |
-| 倒计时 | `TimePointer.js` |
+| 弹窗/提示 | `Alert.ts`、`NoticeTip.ts`、`PopupMgr.ts` |
+| 座位表现 | `Seat.ts`（手牌/弃牌/碰杠渲染）、`Folds.ts`（牌河） |
+| 倒计时 | `TimePointer.ts` |
 | 音效/语音 | `cc.vv.audioMgr`、`cc.vv.voiceMgr` |
 
 玩法分支：`cc.vv.gameNetMgr.conf.type` 为 `"xlch"` 或 `"xzdd"`。
-`MJGame.js`、`GameOver.js`、`GameNetMgr.js` 里有多处按它切换 UI 与逻辑，
+`MJGame.ts`、`GameOver.ts`、`GameNetMgr.ts` 里有多处按它切换 UI 与逻辑，
 新增玩法分支时必须同时考虑两种取值。
 
 ## 3. 场景跳转
 
 `cc.director.loadScene(name)` 的调用点共 15 处：
-`GameNetMgr.js`(187,223)、`UserMgr.js`(55,69)、`Hall.js`(196)、`GameResult.js`(89)、
-`ReConnect.js`(34)、`LoadingLogic.js`(40)、`ReplayCtrl.js`(42)、`AppStart.js`(152,158)、
-`Login.js`(51)、`History.js`(194)、`MJRoom.js`(197)、`Settings.js`(97)。
-**`MJGame.js` 里没有 `loadScene`**，别在那里找。
+`GameNetMgr.ts`(187,223)、`UserMgr.ts`(55,69)、`Hall.ts`(196)、`GameResult.ts`(89)、
+`ReConnect.ts`(34)、`LoadingLogic.ts`(40)、`ReplayCtrl.ts`(42)、`AppStart.ts`(152,158)、
+`Login.ts`(51)、`History.ts`(194)、`MJRoom.ts`(197)、`Settings.ts`(97)。
+**`MJGame.ts` 里没有 `loadScene`**，别在那里找。
 
 主流程：
 

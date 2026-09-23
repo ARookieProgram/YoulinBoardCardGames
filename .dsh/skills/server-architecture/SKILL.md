@@ -61,7 +61,7 @@ description: The Node.js server trio in this project - account/hall/game process
 
 ```
 1. 客户端 → 账号服  GET /guest                                 换取签名与大厅地址
-2. 客户端            cc.vv.http.url = "http://" + cc.vv.SI.hall   （UserMgr.js）
+2. 客户端            cc.vv.http.url = "http://" + cc.vv.SI.hall   （UserMgr.ts）
 3. 客户端 → 大厅服  GET /login?account=&sign=                  取得用户资料
 4. 客户端 → 大厅服  GET /enter_private_room?...                返回 {ip, port, token, roomid, time, sign}
 5. 客户端 → 游戏服  连接 ip:port，emit('login', {token, roomid, time, sign})
@@ -111,7 +111,7 @@ function loadGameManager(type: string): GameManager {
 
 1. 服务端：用 `userMgr.sendMsg` 或 `userMgr.broacastInRoom` 推送，事件名用小写蛇形 + `_push`
    后缀（沿用现有命名，如 `game_begin_push`、`user_ready_push`）。
-2. 客户端：在 `repo:client/assets/scripts/GameNetMgr.js` 里
+2. 客户端：在 `repo:client/assets/scripts/GameNetMgr.ts` 里
    `cc.vv.net.addHandler("<event>", function(data){ ... self.dispatchEvent("<event>", data); })`；
    再在需要的组件里 `this.node.on("<event>", fn)`。
 3. 跑 `npm run check:protocol`，它必须报绿。

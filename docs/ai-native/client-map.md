@@ -24,18 +24,18 @@ Cocos Creator **2.4.15** 客户端。本文是一份"去哪儿找什么"的索�
 
 ```
 assets/scripts/
-├─ Net.js            网络层：socket.io 连接、心跳、addHandler 注册表
-├─ HTTP.js           XHR 封装；基地址硬编码在文件第 2 行
-├─ GameNetMgr.js     对局状态机 + 绝大多数网络事件的注册与派发（674 行）
-├─ UserMgr.js        登录/注册、用户资料、进房流程
-├─ MahjongMgr.js     牌面图集与显示
-├─ ReplayMgr.js      回放
-├─ VoiceMgr.js       语音消息
-├─ AudioMgr.js       音效
-├─ Utils.js          通用工具
-├─ Global.js         少量全局状态
-├─ BGScaler.js       背景适配
-├─ AnysdkMgr.js      第三方 SDK 接入
+├─ Net.ts            网络层：socket.io 连接、心跳、addHandler 注册表
+├─ HTTP.ts           XHR 封装；基地址硬编码在文件第 2 行
+├─ GameNetMgr.ts     对局状态机 + 绝大多数网络事件的注册与派发（674 行）
+├─ UserMgr.ts        登录/注册、用户资料、进房流程
+├─ MahjongMgr.ts     牌面图集与显示
+├─ ReplayMgr.ts      回放
+├─ VoiceMgr.ts       语音消息
+├─ AudioMgr.ts       音效
+├─ Utils.ts          通用工具
+├─ Global.ts         少量全局状态
+├─ BGScaler.ts       背景适配
+├─ AnysdkMgr.ts      第三方 SDK 接入
 └─ components/       34 个场景组件（见 §4）
 ```
 
@@ -45,16 +45,16 @@ assets/scripts/
 
 | 单例 | 来源 |
 | --- | --- |
-| `cc.vv.net` | `Net.js` |
-| `cc.vv.http` | `HTTP.js` |
-| `cc.vv.gameNetMgr` | `GameNetMgr.js` |
-| `cc.vv.userMgr` | `UserMgr.js` |
-| `cc.vv.mahjongmgr` | `MahjongMgr.js` |
-| `cc.vv.replayMgr` | `ReplayMgr.js` |
-| `cc.vv.voiceMgr` / `cc.vv.audioMgr` | `VoiceMgr.js` / `AudioMgr.js` |
-| `cc.vv.global` | `Global.js` |
+| `cc.vv.net` | `Net.ts` |
+| `cc.vv.http` | `HTTP.ts` |
+| `cc.vv.gameNetMgr` | `GameNetMgr.ts` |
+| `cc.vv.userMgr` | `UserMgr.ts` |
+| `cc.vv.mahjongmgr` | `MahjongMgr.ts` |
+| `cc.vv.replayMgr` | `ReplayMgr.ts` |
+| `cc.vv.voiceMgr` / `cc.vv.audioMgr` | `VoiceMgr.ts` / `AudioMgr.ts` |
+| `cc.vv.global` | `Global.ts` |
 
-> **服务器地址有两个来源，别搞混**：账号服基地址硬编码在 `repo:client/assets/scripts/HTTP.js`
+> **服务器地址有两个来源，别搞混**：账号服基地址硬编码在 `repo:client/assets/scripts/HTTP.ts`
 > 第 2 行（`http://127.0.0.1:9000`）；游戏服地址由服务端下发，
 > 在 `GameNetMgr.connectGameServer` 里赋给 `cc.vv.net.ip`。
 
@@ -64,14 +64,14 @@ assets/scripts/
 
 ```
 服务端推送
-  → Net.js 的包装函数（非 disconnect 的字符串自动 JSON.parse）
-  → GameNetMgr.js: cc.vv.net.addHandler(event, fn) → self.dispatchEvent(event, data)
+  → Net.ts 的包装函数（非 disconnect 的字符串自动 JSON.parse）
+  → GameNetMgr.ts: cc.vv.net.addHandler(event, fn) → self.dispatchEvent(event, data)
   → 场景组件: this.node.on(event, fn)
 ```
 
 - `addHandler` 同名只注册一次，重复注册会被忽略并打日志。
-- 断线重连后**不需要重新注册**：`Net.js` 会把 `handlers` 里的处理器重放到新 socket。
-- `game_ping` / `game_pong` 心跳由 `Net.js` 自己处理，不走 `addHandler`。
+- 断线重连后**不需要重新注册**：`Net.ts` 会把 `handlers` 里的处理器重放到新 socket。
+- `game_ping` / `game_pong` 心跳由 `Net.ts` 自己处理，不走 `addHandler`。
 
 事件清单见 `repo:docs/ai-native/protocol.md`。
 
@@ -81,33 +81,33 @@ assets/scripts/
 
 | 分组 | 组件 | 职责 |
 | --- | --- | --- |
-| 启动/登录 | `AppStart.js` | 入口；初始化单例、决定首个场景 |
-| | `LoadingLogic.js` | 加载页 → `login` |
-| | `Login.js` | 账号登录；含 `push_need_create_role` 处理器 |
-| | `CreateRole.js` | 创建角色 |
-| | `WaitingConnection.js` / `ReConnect.js` | 断线等待与重连 |
-| 大厅 | `Hall.js` | 大厅主界面 |
-| | `CreateRoom.js` | 建房选项（玩法/局数/番数/底分…） |
-| | `JoinGameInput.js` | 输入房号进房 |
-| | `History.js` / `MJRoom.js` | 战绩列表 / 房间详情与回放入口 |
-| | `Settings.js` / `Status.js` | 设置 / 状态栏 |
-| | `Alert.js` / `NoticeTip.js` / `PopupMgr.js` | 弹窗、提示、弹窗栈管理 |
-| 对局 | `MJGame.js` | **对局主控**（886 行）：布局、交互、按 `conf.type` 切换表现 |
-| | `Seat.js` | 单个座位：手牌、弃牌、碰杠的渲染与点击 |
-| | `Folds.js` | 牌河 |
-| | `DingQue.js` | 定缺 |
-| | `HuanSanZhang.js` | 换三张 |
-| | `PengGangs.js` | 碰/杠/胡/过 操作区 |
-| | `TimePointer.js` | 出牌倒计时指针 |
-| | `GameOver.js` | 单局结束面板（**只有** `game_over_xlch` 一个节点，按 `conf.type` 走不同分支） |
-| | `GameResult.js` | 总结算 |
-| | `Chat.js` / `Voice.js` | 文字/快捷/表情/语音 |
-| | `ReplayCtrl.js` | 回放控制条 |
-| 通用控件 | `RadioButton.js` / `RadioGroupMgr.js` | 单选与分组 |
-| | `CheckBox.js` | 复选 |
-| | `ImageLoader.js` | 远程头像加载 |
-| | `OnBack.js` | 返回键处理 |
-| | `UserInfoShow.js` | 用户信息卡 |
+| 启动/登录 | `AppStart.ts` | 入口；初始化单例、决定首个场景 |
+| | `LoadingLogic.ts` | 加载页 → `login` |
+| | `Login.ts` | 账号登录；含 `push_need_create_role` 处理器 |
+| | `CreateRole.ts` | 创建角色 |
+| | `WaitingConnection.ts` / `ReConnect.ts` | 断线等待与重连 |
+| 大厅 | `Hall.ts` | 大厅主界面 |
+| | `CreateRoom.ts` | 建房选项（玩法/局数/番数/底分…） |
+| | `JoinGameInput.ts` | 输入房号进房 |
+| | `History.ts` / `MJRoom.ts` | 战绩列表 / 房间详情与回放入口 |
+| | `Settings.ts` / `Status.ts` | 设置 / 状态栏 |
+| | `Alert.ts` / `NoticeTip.ts` / `PopupMgr.ts` | 弹窗、提示、弹窗栈管理 |
+| 对局 | `MJGame.ts` | **对局主控**（886 行）：布局、交互、按 `conf.type` 切换表现 |
+| | `Seat.ts` | 单个座位：手牌、弃牌、碰杠的渲染与点击 |
+| | `Folds.ts` | 牌河 |
+| | `DingQue.ts` | 定缺 |
+| | `HuanSanZhang.ts` | 换三张 |
+| | `PengGangs.ts` | 碰/杠/胡/过 操作区 |
+| | `TimePointer.ts` | 出牌倒计时指针 |
+| | `GameOver.ts` | 单局结束面板（**只有** `game_over_xlch` 一个节点，按 `conf.type` 走不同分支） |
+| | `GameResult.ts` | 总结算 |
+| | `Chat.ts` / `Voice.ts` | 文字/快捷/表情/语音 |
+| | `ReplayCtrl.ts` | 回放控制条 |
+| 通用控件 | `RadioButton.ts` / `RadioGroupMgr.ts` | 单选与分组 |
+| | `CheckBox.ts` | 复选 |
+| | `ImageLoader.ts` | 远程头像加载 |
+| | `OnBack.ts` | 返回键处理 |
+| | `UserInfoShow.ts` | 用户信息卡 |
 
 ---
 
@@ -123,10 +123,10 @@ start → loading → login → createrole ─┐
                        mjgame ──(结束/退出)──► hall
 ```
 
-`cc.director.loadScene` 的调用点（共 15 处，全量）：`GameNetMgr.js`(187,223)、`UserMgr.js`(55,69)、
-`Hall.js`(196)、`GameResult.js`(89)、`ReConnect.js`(34)、`LoadingLogic.js`(40)、`ReplayCtrl.js`(42)、
-`AppStart.js`(152,158)、`Login.js`(51)、`History.js`(194)、`MJRoom.js`(197)、`Settings.js`(97)。
-**`MJGame.js` 里没有 `loadScene`。** 改流程前先在 `client/assets/scripts` 全目录搜一遍现有跳转。
+`cc.director.loadScene` 的调用点（共 15 处，全量）：`GameNetMgr.ts`(187,223)、`UserMgr.ts`(55,69)、
+`Hall.ts`(196)、`GameResult.ts`(89)、`ReConnect.ts`(34)、`LoadingLogic.ts`(40)、`ReplayCtrl.ts`(42)、
+`AppStart.ts`(152,158)、`Login.ts`(51)、`History.ts`(194)、`MJRoom.ts`(197)、`Settings.ts`(97)。
+**`MJGame.ts` 里没有 `loadScene`。** 改流程前先在 `client/assets/scripts` 全目录搜一遍现有跳转。
 
 ---
 

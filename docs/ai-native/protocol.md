@@ -8,9 +8,9 @@
 
 - 方向：§1 全部为 **服务端 → 客户端**（客户端主动请求的事件见 §2）。
 - 「作用域」：`房间广播` = 同房间所有座位；`单人` = 指定 `userId`。
-- 客户端侧的注册**绝大多数**在 `repo:client/assets/scripts/GameNetMgr.js` 里经
+- 客户端侧的注册**绝大多数**在 `repo:client/assets/scripts/GameNetMgr.ts` 里经
   `cc.vv.net.addHandler(event, fn)` 完成。两个例外见 §4：`push_need_create_role` 注册在
-  `components/Login.js`，`game_pong` 由 `Net.js` 直接 `sio.on` 处理。
+  `components/Login.ts`，`game_pong` 由 `Net.ts` 直接 `sio.on` 处理。
 
 ---
 
@@ -104,7 +104,7 @@
 
 **HTTP 路径的增删不会让门禁报红。** 改这些接口时请人工双向搜索调用方
 （客户端搜 `cc.vv.http.sendRequest`，服务端搜 `http.send` / `res.send`）。
-注意客户端 `HTTP.js` **只用 GET**，参数走 query string。
+注意客户端 `HTTP.ts` **只用 GET**，参数走 query string。
 
 返回结构也不统一：大厅服与游戏服走 `utils/http.ts` 的 `send()`（`{errcode, errmsg, data}`），
 账号服的两个文件各自定义本地 `send(res, ret)` 直接 `res.send`。
@@ -115,9 +115,9 @@
 
 | 项 | 状态 |
 | --- | --- |
-| `push_need_create_role` | 客户端注册了处理器（在 `components/Login.js`，**不在 `GameNetMgr.js`**），但**服务端从不推送**。已列入 `KNOWN_UNSENT`，属于待清理的死代码；删除会影响登录分支，需产品确认。 |
+| `push_need_create_role` | 客户端注册了处理器（在 `components/Login.ts`，**不在 `GameNetMgr.ts`**），但**服务端从不推送**。已列入 `KNOWN_UNSENT`，属于待清理的死代码；删除会影响登录分支，需产品确认。 |
 | 客户端 `connect` / `disconnect` / `reconnect` / `connect_failed` | socket.io 自身的连接事件，非业务推送，检查中排除。 |
-| `game_pong` | 不走 `addHandler`，由 `repo:client/assets/scripts/Net.js` 直接 `sio.on` 处理并计算延迟。检查已覆盖该注册路径。 |
+| `game_pong` | 不走 `addHandler`，由 `repo:client/assets/scripts/Net.ts` 直接 `sio.on` 处理并计算延迟。检查已覆盖该注册路径。 |
 | 直连 `socket.emit` | `repo:server/game_server/socket_service.ts` 里有 7 处（`login_result`×4、`login_finished`、`exit_result`、`game_pong`），全部在登录/连接阶段。**检查能扫到它们**，不要以为门禁看不见。 |
 
 ---
@@ -128,6 +128,6 @@
 
 1. 服务端：对局内推送用 `userMgr.sendMsg` / `userMgr.broacastInRoom`；连接阶段的推送可以像既有代码
    那样直接 `socket.emit`。两种写法门禁都能扫到。
-2. 客户端在 `GameNetMgr.js` 里 `addHandler` + `dispatchEvent`，组件里 `this.node.on` 订阅。
+2. 客户端在 `GameNetMgr.ts` 里 `addHandler` + `dispatchEvent`，组件里 `this.node.on` 订阅。
 3. 跑 `npm run check:protocol`。
 4. 更新本文 §1 的表格；忘了也不要紧——`npm run check:protocol` 会报红提醒你。

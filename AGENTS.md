@@ -13,12 +13,14 @@
 
 | 部分 | 技术栈 | 说明 |
 | --- | --- | --- |
-| `repo:client/` | Cocos Creator **2.4.15**（`cocos2d-html5`） | 客户端。`assets/scripts/` 下是手写的 ES5 风格 JS；`.fire` 场景由 Creator 编辑器产出 |
+| `repo:client/` | Cocos Creator **2.4.15**（`cocos2d-html5`） | 客户端。`assets/scripts/` 下是手写的 ES5 风格 **TypeScript**（`cc.Class` / `var` / `function`，由 Creator 自己编译）；`.fire` 场景由 Creator 编辑器产出 |
 | `repo:server/` | Node.js + **TypeScript（`strict: true`，`tsc` 编译到 `server/dist/`）** + Express + Socket.IO + MySQL（`mysql2` 驱动） | 服务端。源码是 `.ts`，跑的是编译产物；三个独立进程：账号服 / 大厅服 / 游戏服 |
 
-**客户端代码风格是 2016 年的 ES5 + CommonJS**：`var`、`function`、回调，没有构建步骤、
-没有 TypeScript、没有转译器。请沿用现有风格，不要引入 `const`/`let`/箭头函数/`async` 混搭，
-也不要为客户端引入打包器。
+**客户端源码也是 TypeScript，但写法刻意保持 2016 年的 ES5 + CommonJS**：`var`、`function`、
+回调、`cc.Class`，没有构建步骤、没有打包器，`.ts` 由 Creator 2.4.15 自己编译。
+只允许**可擦除的类型标注**，不要引入 `class` / `@ccclass` / `let` / `const` / 箭头函数 / `async`，
+也不要为客户端引入打包器。逐条规矩（`cc.Class` 的 `this` 怎么来、网络边界怎么断言、`.meta` 怎么改名）
+见 `repo:docs/ai-native/client-typescript-migration.md`。
 
 **服务端已经迁移到 TypeScript，但风格刻意没变**：`server/` 下一方源码全是 `.ts`
 （`server/tests/*.ts` 也是），`strict: true`，用 `tsc` 编译到 `server/dist/` 后再运行。
@@ -128,7 +130,7 @@ node dist/game_server/app.js ../configs_mac.js   # 或 yarn game
 这是本仓库唯一的"完成"判据。门禁自身依赖为零，无需 `npm install`；唯一例外是 `types` 检查的
 **`tsc` 那一半**——它要 `server/node_modules/typescript`（`cd server && yarn install` 才有），
 没装时这半显示 **skipped** 并说明原因，但同一检查里的 **no-any 审计照跑**（纯文本扫描，
-零依赖），其余五项也照跑（服务端依赖另由 `repo:server/yarn.lock` 管理，与门禁无关，
+零依赖），其余五项也照跑（`client/` 与 `server/` 共用这一个编译器，客户端不额外引依赖，
 见 `repo:server/AGENTS.md` §1.1）。
 
 ```bash
@@ -149,8 +151,8 @@ npm run test:tools             # 校验检查器自身
 
 | 检查 | 回答的问题 |
 | --- | --- |
-| `syntax` | 80 个一方 `.js` / `.ts` 是否都能被解析（client 47 / server 33）：`.js` 用 `vm.Script` 编译，`.ts` 用 Node 内置 `module.stripTypeScriptTypes` 擦类型解析——**都只解析不执行**，且顺带强制 `.ts` 只用可擦除语法 |
-| `types` | `server/` 是否守住类型契约：① 无依赖的 **no-any 审计**扫一遍所有一方 `.ts`（注释先抹掉、保留行号），`: any` / `as any` / `<any>` / `@ts-ignore` / `@ts-expect-error` 一律算失败；② 装了 `server/node_modules/typescript` 时再跑 `tsc --noEmit`（strict）。缺编译器时 ② 报 skipped，① 仍然执行 |
+| `syntax` | 80 个一方脚本是否都能被解析（client 47 / server 33）：`.ts` 统一用 Node 内置 `module.stripTypeScriptTypes` 擦类型解析（**只解析不执行**，且顺带强制只用可擦除语法），`.js` 用 `vm.Script` 编译。客户端的 47 = `assets/scripts/` 下 46 个一方脚本 + Creator 自动生成的 `assets/migration/` 助手。另外 `server/` 与 `client/assets/scripts/` 下都不允许残留一方 `.js`（vendored 的 `3rdparty/` 与自动生成的 `assets/migration/` 除外） |
+| `types` | `server/` 与 `client/` 是否守住类型契约：① 无依赖的 **no-any 审计**扫一遍所有一方 `.ts`（注释先抹掉、保留行号），`: any` / `as any` / `<any>` / `@ts-ignore` / `@ts-expect-error` 一律算失败；② 装了 `server/node_modules/typescript` 时再分别跑两棵树的 `tsc --noEmit`（strict，客户端用 `client/tsconfig.json`）。缺编译器时 ② 报 skipped，① 仍然执行 |
 | `harness` | 本文档与 `.dsh/skills/` 是否能被 Harness 真正发现、格式是否合法 |
 | `protocol` | Socket.IO 事件词汇表是否两端对齐 |
 | `smoke` | 听牌/胡牌判定、花色分类、MD5 与 Base64（**不含算番**，番值无离线判据） |
@@ -174,7 +176,10 @@ npm run test:tools             # 校验检查器自身
 - **改服务端类型**：共享类型在 `repo:server/types/`（`config.ts` / `domain.ts` / `protocol.ts` /
   `db_rows.ts` / `globals.d.ts` / `socket.io.d.ts`），改完跑 `npm run verify -- --only=types`。
 - **改客户端组件**：`repo:docs/ai-native/client-map.md` 有组件职责表；`assets/**/*.meta` 由 Creator
-  维护，不要手工编辑。
+  维护，不要手工编辑内容（新增脚本时把同名 `.meta` 一起改名并保留 `uuid`，否则场景引用会断）。
+- **改客户端类型**：共享声明在 `repo:client/types/`（`cc-vv.d.ts` / `domain.d.ts` / `cc-class.d.ts` /
+  `cc-augment.d.ts` / `globals.d.ts`），改完跑 `npm run verify -- --only=types`；迁移与断言规矩见
+  `repo:docs/ai-native/client-typescript-migration.md`。
 
 ---
 

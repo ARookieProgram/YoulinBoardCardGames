@@ -125,7 +125,7 @@ var ACTION_ZIMO   = 6;   // 自摸
 
 | 层 | 字段 |
 | --- | --- |
-| 入参 `roomConf`（`CreateRoom.js` 提交） | `type`、`difen`、`zimo`、`jiangdui`、`huansanzhang`、`zuidafanshu`、`jushuxuanze`、`dianganghua`、`menqing`、`tiandihu` |
+| 入参 `roomConf`（`CreateRoom.ts` 提交） | `type`、`difen`、`zimo`、`jiangdui`、`huansanzhang`、`zuidafanshu`、`jushuxuanze`、`dianganghua`、`menqing`、`tiandihu` |
 | 落库 `conf`（`t_rooms.base_info`） | `type`、`baseScore`、`zimo`、`jiangdui`、`hsz`、`dianganghua`、`menqing`、`tiandihu`、`maxFan`、`maxGames`、`creator` |
 
 映射：`difen → DI_FEN[1,2,5]`、`zuidafanshu → MAX_FAN[3,4,5]`、`jushuxuanze → JU_SHU[4,8]`、

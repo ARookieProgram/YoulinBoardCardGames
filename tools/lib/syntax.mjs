@@ -171,6 +171,30 @@ export async function findStrayServerJavaScript(root) {
 }
 
 /**
+ * First-party `.js` files left behind under `client/`.
+ *
+ * The client is TypeScript now too. Creator resolves a script by its asset path
+ * without the extension, so a leftover `.js` does not shadow its `.ts` twin the
+ * way it does under `server/` — but it does mean two files define the same
+ * component and nobody can tell which one the editor imported.
+ *
+ * Two trees are excluded on purpose, and both must stay JavaScript:
+ *   - `assets/scripts/3rdparty/` ships vendored libraries as `.js`;
+ *   - `assets/migration/` holds the helper scripts Creator itself generates to
+ *     migrate pre-2.1 projects (`use_v2.0.x_cc.Toggle_event.js`), with a header
+ *     saying not to edit them.
+ *
+ * @param {string} root repository root.
+ * @returns {Promise<string[]>} absolute paths of stray client JavaScript, sorted.
+ */
+export async function findStrayClientJavaScript(root) {
+  const files = await collectScripts(join(root, "client"), {
+    exclude: ["/assets/scripts/3rdparty/", "/assets/migration/"],
+  });
+  return files.filter((file) => file.endsWith(".js"));
+}
+
+/**
  * Report a file path relative to the repository root using `/` separators.
  * @param {string} root repository root.
  * @param {string} file absolute path.
