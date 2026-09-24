@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# 管理平台端到端验收脚本：登录闭环 + 玩家管理（本机手工跑，不进门禁）。
+# 管理平台端到端验收脚本：登录闭环 + 玩家管理 + 房间管理（本机手工跑，不进门禁）。
 #
 # 前置：
 #   1) platform_server 已在 127.0.0.1:8000 运行，且已 seed_admin；
 #   2) 玩家库（`DATABASES["player"]`）可连——第 9 节的封禁 / 解封断言需要库里有
-#      **未被封禁**的玩家；没有数据时这一小段会自动跳过并打印提示，不算失败。
+#      **未被封禁**的玩家，第 11 节的房间断言需要 `t_rooms` 存在；没有数据时
+#      这两小段会自动跳过并打印提示，不算失败。
 #
 # 用法：./scripts/e2e_login_check.sh [base_url]
 set -uo pipefail
@@ -224,6 +225,60 @@ else
     -H 'Content-Type: application/json' -d '{"reason":"e2e 内部接口验收收尾"}' >/dev/null
   after_view=$(curl -s "$BASE/api/internal/players/ban-check/?player_id=$target_id&sign=$sign_id")
   check "解封后 banned=false" "False" "$(jq_get "$after_view" "['data']['banned']")"
+fi
+
+echo "== 11. 房间管理（只读监控 + 预留解散入口）=="
+
+# 11.1 认证与参数校验
+nologin_room=$(curl -s -w '\n%{http_code}' "$BASE/api/rooms/")
+check "无令牌访问房间列表返回 401" "401" "$(printf '%s' "$nologin_room" | tail -1)"
+check "无令牌 code=10002" "10002" "$(jq_get "$(printf '%s' "$nologin_room" | sed '$d')" "['code']")"
+
+room_badparam=$(curl -s -w '\n%{http_code}' "$BASE/api/rooms/?page_size=0" -H "Authorization: Bearer $access2")
+check "房间列表非法分页 HTTP 400" "400" "$(printf '%s' "$room_badparam" | tail -1)"
+check "房间列表非法分页 code=10001" "10001" "$(jq_get "$(printf '%s' "$room_badparam" | sed '$d')" "['code']")"
+
+room_missing=$(curl -s -w '\n%{http_code}' "$BASE/api/rooms/999999/" -H "Authorization: Bearer $access2")
+check "房间不存在 HTTP 404" "404" "$(printf '%s' "$room_missing" | tail -1)"
+check "房间不存在 code=13001" "13001" "$(jq_get "$(printf '%s' "$room_missing" | sed '$d')" "['code']")"
+
+# 11.2 概览与列表（房间是瞬时的，库里可能一个都没有，所以要分开判断）
+room_overview=$(curl -s "$BASE/api/rooms/overview/" -H "Authorization: Bearer $access2")
+room_overview_code=$(jq_get "$room_overview" "['code']")
+if [ "$room_overview_code" = "12004" ]; then
+  printf '  \033[33m!\033[0m 玩家库没有 t_rooms / 连不上，跳过房间概览与列表断言（先跑 init_player_dev 或导入房间数据）\n'
+else
+  check "房间概览 code=0" "0" "$room_overview_code"
+
+  room_list=$(curl -s "$BASE/api/rooms/?page_size=1" -H "Authorization: Bearer $access2")
+  check "房间列表 code=0" "0" "$(jq_get "$room_list" "['code']")"
+  check "房间列表含分页键 items" "yes" "$(printf '%s' "$room_list" | grep -q '"items"' && echo yes || echo no)"
+
+  room_id=$(printf '%s' "$room_list" | python3 -c \
+    "import json,sys;d=json.load(sys.stdin);items=d['data']['items'];print(items[0]['room_id'] if items else '')" \
+    2>/dev/null || echo "")
+
+  if [ -z "$room_id" ]; then
+    printf '  \033[33m!\033[0m 玩家库当前没有存活房间，跳过房间详情与预留入口断言\n'
+  else
+    room_detail=$(curl -s "$BASE/api/rooms/$room_id/" -H "Authorization: Bearer $access2")
+    check "房间详情 code=0" "0" "$(jq_get "$room_detail" "['code']")"
+    check "详情返回同一房间" "$room_id" "$(jq_get "$room_detail" "['data']['room_id']")"
+    check "详情带四个座位" "4" \
+      "$(printf '%s' "$room_detail" | python3 -c \
+        "import json,sys;print(len(json.load(sys.stdin)['data']['seats']))" 2>/dev/null || echo "")"
+
+    # 11.3 预留的解散入口：返回 reserved 说明，且不能真的改动房间
+    room_dissolve=$(curl -s -X POST "$BASE/api/rooms/$room_id/dissolve/" \
+      -H "Authorization: Bearer $access2" -H 'Content-Type: application/json' -d '{}')
+    check "解散入口 code=0" "0" "$(jq_get "$room_dissolve" "['code']")"
+    check "解散入口已预留" "True" "$(jq_get "$room_dissolve" "['data']['reserved']")"
+    check "解散入口回带 uuid" "yes" \
+      "$([ -n "$(jq_get "$room_dissolve" "['data']['uuid']")" ] && echo yes || echo no)"
+
+    room_after=$(curl -s "$BASE/api/rooms/$room_id/" -H "Authorization: Bearer $access2")
+    check "解散入口不改动房间（详情仍可查）" "0" "$(jq_get "$room_after" "['code']")"
+  fi
 fi
 
 echo
