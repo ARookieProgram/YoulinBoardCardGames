@@ -111,8 +111,8 @@ onMounted(async () => {
   <div class="login-page">
     <div class="login-card">
       <div class="login-brand">
-        <div class="login-brand__mark">幼</div>
-        <h1 class="login-brand__title">幼麟麻将管理平台</h1>
+        <div class="login-brand__mark">麒</div>
+        <h1 class="login-brand__title">麻将管理平台</h1>
         <p class="login-brand__subtitle">四川麻将 · 运营后台</p>
       </div>
 
@@ -180,7 +180,7 @@ onMounted(async () => {
     </div>
 
     <div class="login-copyright">
-      © {{ new Date().getFullYear() }} 幼麟游戏 · 管理后台
+      © {{ new Date().getFullYear() }} 麒麟游戏 · 管理后台
     </div>
   </div>
 </template>
