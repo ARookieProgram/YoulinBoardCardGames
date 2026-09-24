@@ -7,6 +7,13 @@
 
 const { ccclass, property } = cc._decorator;
 
+/**
+ * 游戏服在"账号被封禁"时返回的业务码（`game_server/socket_service.ts` /
+ * `socket_service.py` 的 `login_result{errcode:4}`）。1 参数非法、2 签名错误、
+ * 3 token 过期，4 是新增的封禁。
+ */
+const ERR_ACCOUNT_BANNED = 4;
+
 @ccclass
 export default class GameNetMgr extends cc.Component {
     @property dataEventHandler: cc.Node | null = null;
@@ -182,6 +189,14 @@ export default class GameNetMgr extends cc.Component {
             }
             else {
                 console.log(resp.errmsg);
+                // 进房被拒里的"账号已被封禁"（服务端 errcode=4，见
+                // `game_server/socket_service.ts` 的封禁校验）：这时没有建立对局连接，
+                // 玩家停在"正在进入房间"的等待遮罩上，必须提示并收回遮罩。
+                // 其它错误码维持原样（只打日志），不改变既有行为。
+                if (resp.errcode === ERR_ACCOUNT_BANNED) {
+                    cc.vv.wc.hide();
+                    cc.vv.alert!.show("无法进入房间", resp.errmsg ? String(resp.errmsg) : "账号已被封禁");
+                }
             }
             self.dispatchEvent('login_result');
         });
