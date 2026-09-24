@@ -16,12 +16,14 @@
 | `repo:client/` | Cocos Creator **2.4.15**（`cocos2d-html5`） | 客户端。`assets/scripts/` 下是手写的 **TypeScript**（ES6 `class` + `cc._decorator` 的 `@ccclass` / `@property`，由 Creator 自己编译）；`.fire` 场景由 Creator 编辑器产出 |
 | `repo:server/` | Node.js + **TypeScript（`strict: true`，`tsc` 编译到 `server/dist/`）** + Express + Socket.IO + MySQL（`mysql2` 驱动） | 服务端。源码是 `.ts`，跑的是编译产物；三个独立进程：账号服 / 大厅服 / 游戏服 |
 | `repo:server-python/` | **Python 3.14** + `asyncio` + `aiohttp` + `python-socketio` 协议层（自研）+ `aiomysql` | 服务端的 Python 重写版。同样的三个进程、同样的 6 个端口、同样的 HTTP 路由 / md5 签名 / Socket.IO 事件名 / MySQL schema，**与现有客户端和数据库完全兼容**；契约见 `repo:server-python/AGENTS.md` |
-| `repo:server-python/platform_server/` | **Python 3.14 + Django 6.1 + DRF + SimpleJWT** | **游戏管理平台的后端**（:8000）。独立的库 `db_scmj_admin`、独立的账号表 `AdminUser`，**与玩家账号体系完全隔离**；契约见 `repo:server-python/platform_server/AGENTS.md` |
-| `repo:admin-platform/` | **Vue 3 + TypeScript + Element Plus + Pinia + Vue Router + Vite** | **游戏管理平台的前端**（dev :5173）。登录页 / 登录态 / 请求层 / 路由守卫 / 后台骨架；只与 `platform_server` 通信，与 `client/` 无关 |
+| `repo:server-python/platform_server/` | **Python 3.14 + Django 6.1 + DRF + SimpleJWT** | **游戏管理平台的后端**（:8000）。独立的库 `db_scmj_admin`、独立的账号表 `AdminUser`，**与玩家账号体系完全隔离**；玩家数据（账号 / 昵称 / 房卡 `gems`）通过一条**只读数据源**读玩家库 `db_scmj`，封禁记录只落本平台的库；契约见 `repo:server-python/platform_server/AGENTS.md` |
+| `repo:admin-platform/` | **Vue 3 + TypeScript + Element Plus + Pinia + Vue Router + Vite** | **游戏管理平台的前端**（dev :5173）。登录页 / 登录态 / 请求层 / 路由守卫 / 后台骨架 / **玩家管理**（查询、房卡展示、封禁解封、对局与充值记录的预留入口）；只与 `platform_server` 通信，与 `client/` 无关 |
 
 **管理平台是独立的一块，不要与游戏服务端混在一起**：它跑在 8000 端口、用独立的库与账号表，
-玩家账号无法登录管理平台，管理员账号也不能当游戏账号用。隔离红线与"能同时运行"的端口表见
-`repo:server-python/platform_server/AGENTS.md` §2 与 `repo:server-python/platform_server/README.md` §1。
+玩家账号无法登录管理平台，管理员账号也不能当游戏账号用。玩家库只有
+`apps/players/player_source.py` 这一条**只读**通道（只执行 SELECT），
+封禁状态落在管理平台自己的库，游戏服登录链路不读它。隔离红线与"能同时运行"的端口表见
+`repo:server-python/platform_server/AGENTS.md` §2 与 `repo:server-python/platform_server/README.md` §1 / §6。
 
 
 **客户端源码是 TypeScript，组件写法已经统一到 ES6 `class` + `cc._decorator` 装饰器**

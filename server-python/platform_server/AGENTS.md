@@ -34,8 +34,23 @@
 5. 需要展示玩家数据时，走账号服/大厅服已有的 HTTP 接口，或另加只读数据源，
    并把数据来源与权限边界写进 README。
 
+**第 5 条已经落地为玩家管理**（`apps/players/`），边界是：
+
+* 唯一读玩家库的地方是 `apps/players/player_source.py`，走
+  `settings.DATABASES["player"]`，**只执行 SELECT**（`_assert_read_only()` 硬校验，
+  `tests/test_players.py::PlayerSourceIsolationTests` 断言玩家库连接上没有非 SELECT）；
+* 玩家库上**没有模型、没有迁移**（`PlayerBan` 落本平台的 `db_scmj_admin`）；
+* 不 import 游戏服的 `utils/db.py`，也不共享它的连接池；
+* 数据来源与权限边界写在 `repo:server-python/platform_server/README.md` §6。
+
+第 1 条说的是"不要顺手去读玩家表"，第 5 条是它的**唯一例外通道**：
+要走 `player_source`，不要另开第二条。凡是往玩家库写的想法（包括封禁状态）
+都属于游戏服务端的范畴，必须成对改 `repo:server/` 与 `repo:server-python/`，
+不能在管理平台侧实现。
+
 `repo:server-python/platform_server/tests/test_auth.py::AccountIsolationTests`
-把第 1、2 条钉成了断言。
+把第 1、2 条钉成了断言；`tests/test_players.py::PlayerSourceIsolationTests`
+把上面这套玩家库边界钉成了断言。
 
 ## 3. 目录约定
 
@@ -47,6 +62,7 @@ platform_server/
 ├─ config/                       工程配置（settings 是唯一配置来源）
 ├─ apps/common/                  响应外壳 / 错误码 / 异常 / 分页 / IP
 ├─ apps/accounts/                管理平台账号体系（模型 / 序列化 / 视图 / 权限）
+├─ apps/players/                 玩家管理（只读玩家库 player_source + 封禁流水 PlayerBan）
 ├─ sql/db_scmj_admin.sql         **生成产物**：建库脚本（不要手改，见 §4.4）
 └─ scripts/
     ├─ run.sh / serve.py         启停脚本（start/stop/restart/status/logs/init/check）
@@ -56,9 +72,11 @@ platform_server/
 ```
 
 **新增业务模块**放 `apps/<模块>/`，并在 `config/settings.py` 的 `INSTALLED_APPS`
-里注册 `apps.<模块>`（`apps/` 是命名空间包，`label` 在各自 `apps.py` 里显式指定）。
+里注册 `apps.<模块>`（`apps/` 是命名空间包，`label` 在各自 `apps.py` 里显式指定），
+同时把 label 加进 `scripts/gen_sql.py` 的 `PLATFORM_APP_LABELS`——
+否则建库脚本末尾的 schema 速查会漏掉它的表（见 §4.4）。
 
-## 4. 四条容易踩的坑
+## 4. 五条容易踩的坑
 
 ### 4.1 DRF 的 `ValidationError` 带不了业务码
 
@@ -87,9 +105,9 @@ AssertionError: .accepted_renderer not set on Response
 ### 4.3 错误码只有一份
 
 业务码**只定义在 `repo:server-python/platform_server/apps/common/error_codes.py`**。
-`apps/accounts/error_codes.py` 是转出口，不是第二份定义。
-新增登录相关码加在 `11xxx` 段；前端对应常量在
-`repo:admin-platform/src/api/types.ts` 的 `ErrorCode`，要同步改。
+`apps/accounts/error_codes.py`、`apps/players/error_codes.py` 都只是转出口，
+不是第二份定义。新增登录相关码加在 `11xxx` 段，玩家管理相关码加在 `12xxx` 段；
+前端对应常量在 `repo:admin-platform/src/api/types.ts` 的 `ErrorCode`，要同步改。
 
 ### 4.4 `sql/db_scmj_admin.sql` 是**生成产物**，不要手改
 
@@ -106,18 +124,32 @@ AssertionError: .accepted_renderer not set on Response
   而且离线调用容易给出假阳性（曾误报过全部第三方 app，而真实
   `makemigrations --check` 回答 "No changes detected"）。
 
+### 4.5 玩家库别名只读，且测试库是独立的一份
+
+`settings.DATABASES["player"]` 是玩家库（`db_scmj`）的**只读**别名：
+
+* 只有 `apps/players/player_source.py` 用它，SQL 必须过
+  `_assert_read_only()`（单条 SELECT）。**不要**在这个别名上跑迁移、建表或写数据；
+* 别名的 `TEST.NAME` 是 `None`：测试库由 Django 另建（SQLite 内存库 / MySQL 的
+  `test_db_scmj`），`tests/test_players.py` 自己 `CREATE TABLE t_users`。
+  所以**跑 `manage.py test` 永远不会碰真实 `db_scmj`**；
+* 玩家库连不上时接口返回 `12004`（503），不是 500。新增玩家相关查询时，
+  让异常冒到 `PlayerSourceUnavailable`，不要在视图里吞掉；
+* 玩家表**没有**对应 Django 模型，字段口径（例如 `name` 是 Base64）
+  记在 `player_source.py` 的模块文档里，改查询前先读它。
+
 ## 5. 改完怎么验证
 
 ```bash
 cd server-python/platform_server
 
-# 1) 接口测试（不需要 MySQL）。38 项（登录 29 + 建库脚本自检 9）。
+# 1) 接口测试（不需要 MySQL）。82 项（登录 29 + 玩家管理 40 + 建库脚本自检 13）。
 PLATFORM_DB_ENGINE=sqlite ../.venv/bin/python manage.py test
 
 # 1b) 建库 SQL 是否与迁移一致（改了模型必跑）
 ./scripts/check_sql_fresh.sh
 
-# 2) 真实 HTTP 端到端。24 项。
+# 2) 真实 HTTP 端到端。48 项（登录 24 + 玩家管理 24）。
 #    启停一律用 ./scripts/run.sh（等价于 runserver --noreload + 健康检查）：
 ./scripts/run.sh                       # 启动（等健康检查通过）
 ./scripts/e2e_login_check.sh           # 打真实接口
