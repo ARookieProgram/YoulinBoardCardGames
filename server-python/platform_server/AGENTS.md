@@ -24,8 +24,8 @@
 
 ## 2. 隔离红线（改任何代码前先读）
 
-1. **不读玩家库、不写玩家库**。管理平台的 ORM 里没有 `t_accounts` / `t_users`，
-   也不要为了"顺手查一下"去 `import` `repo:server-python/utils/db.py`。
+1. **不读玩家库、不写玩家库**。管理平台的 ORM 里没有 `t_accounts` / `t_users` /
+   `t_rooms`，也不要为了"顺手查一下"去 `import` `repo:server-python/utils/db.py`。
 2. **不复用 `t_accounts` 当管理员表**。玩家侧口令是明文且玩家可自行注册，
    拿它做后台等于没有防线。
 3. **不签发游戏 token、不校验游戏 token**。两套 token 的算法、密钥、信任域都不同。
@@ -42,6 +42,13 @@
 * 玩家库上**没有模型、没有迁移**（`PlayerBan` 落本平台的 `db_scmj_admin`）；
 * 不 import 游戏服的 `utils/db.py`，也不共享它的连接池；
 * 数据来源与权限边界写在 `repo:server-python/platform_server/README.md` §6。
+
+**房间管理**（`apps/rooms/`）是同一个红线的第二个落点：它要读的 `t_rooms`
+也在玩家库里，所以**复用 `player_source.py` 那条通道**（房间查询就在该文件里，
+`apps/rooms/` 只有视图与序列化器，自己不连库、不拼 SQL）。
+`tests/test_rooms.py::RoomSourceIsolationTests` 用 AST 与执行期两种方式钉住这一点；
+房间数据同样**不落本平台的库**（`apps/rooms/` 没有模型，所以也**不用**加进
+`scripts/gen_sql.py` 的 `PLATFORM_APP_LABELS`）。
 
 第 1 条说的是"不要顺手去读玩家表"，第 5 条是它的**唯一例外通道**：
 要走 `player_source`，不要另开第二条。凡是往玩家库写的想法（包括封禁状态）
@@ -69,8 +76,10 @@ platform_server/
 ├─ config/                       工程配置（settings 是唯一配置来源）
 ├─ apps/common/                  响应外壳 / 错误码 / 异常 / 分页 / IP
 ├─ apps/accounts/                管理平台账号体系（模型 / 序列化 / 视图 / 权限）
-├─ apps/players/                 玩家管理（只读玩家库 player_source + 封禁流水 PlayerBan
-│                                 + 给游戏服的内部校验 internal.py）
+├─ apps/players/                 玩家管理（只读玩家库 player_source：t_users + t_rooms
+│                                 + 封禁流水 PlayerBan + 给游戏服的内部校验 internal.py）
+├─ apps/rooms/                   房间管理（只读监控 t_rooms；**没有模型**，
+│                                 只有 serializers / views / urls / exceptions）
 ├─ sql/db_scmj_admin.sql         **生成产物**：建库脚本（不要手改，见 §4.4）
 └─ scripts/
     ├─ run.sh / serve.py         启停脚本（start/stop/restart/status/logs/init/check）
@@ -83,6 +92,8 @@ platform_server/
 里注册 `apps.<模块>`（`apps/` 是命名空间包，`label` 在各自 `apps.py` 里显式指定），
 同时把 label 加进 `scripts/gen_sql.py` 的 `PLATFORM_APP_LABELS`——
 否则建库脚本末尾的 schema 速查会漏掉它的表（见 §4.4）。
+**没有模型的模块（如 `apps/rooms/`）不用加进 `PLATFORM_APP_LABELS`**：
+那里是给"本平台的表"做速查的，没有表就没什么可列的。
 
 ## 4. 五条容易踩的坑
 
@@ -113,11 +124,17 @@ AssertionError: .accepted_renderer not set on Response
 ### 4.3 错误码只有一份
 
 业务码**只定义在 `repo:server-python/platform_server/apps/common/error_codes.py`**。
-`apps/accounts/error_codes.py`、`apps/players/error_codes.py` 都只是转出口，
-不是第二份定义。新增登录相关码加在 `11xxx` 段，玩家管理相关码加在 `12xxx` 段；
+`apps/accounts/error_codes.py`、`apps/players/error_codes.py`、
+`apps/rooms/error_codes.py` 都只是转出口，不是第二份定义。
+新增登录相关码加在 `11xxx` 段，玩家管理相关码加在 `12xxx` 段，
+房间管理相关码加在 `13xxx` 段；
 前端对应常量在 `repo:admin-platform/src/api/types.ts` 的 `ErrorCode`，要同步改。
 内部接口（`/api/internal/`）的签名失败复用通用 `10003`、未配置密钥用 `10500`，
 没有单开新码——它们不是给玩家看的业务错误。
+
+**"玩家库连不上"只有一个码**（`12004`）：房间数据与玩家数据来自同一条只读数据源，
+运维处置方式相同，所以房间侧**不要**再开一个 `13xxx` 的"数据源不可用"。
+房间侧目前只有 `13001`（房间不存在）。
 
 ### 4.4 `sql/db_scmj_admin.sql` 是**生成产物**，不要手改
 
@@ -138,11 +155,12 @@ AssertionError: .accepted_renderer not set on Response
 
 `settings.DATABASES["player"]` 是玩家库（`db_scmj`）的**只读**别名：
 
-* 只有 `apps/players/player_source.py` 用它，SQL 必须过
-  `_assert_read_only()`（单条 SELECT）。**不要**在这个别名上跑迁移、建表或写数据；
+* 只有 `apps/players/player_source.py` 用它（`t_users` 与 `t_rooms` 都走它），
+  SQL 必须过 `_assert_read_only()`（单条 SELECT）。
+  **不要**在这个别名上跑迁移、建表或写数据；
 * 别名的 `TEST.NAME` 是 `None`：测试库由 Django 另建（SQLite 内存库 / MySQL 的
-  `test_db_scmj`），`tests/test_players.py` 自己 `CREATE TABLE t_users`。
-  所以**跑 `manage.py test` 永远不会碰真实 `db_scmj`**；
+  `test_db_scmj`），`tests/test_players.py` 与 `tests/test_rooms.py` 各自
+  `CREATE TABLE`。所以**跑 `manage.py test` 永远不会碰真实 `db_scmj`**；
 * 玩家库连不上时接口返回 `12004`（503），不是 500。新增玩家相关查询时，
   让异常冒到 `PlayerSourceUnavailable`，不要在视图里吞掉；
 * 玩家表**没有**对应 Django 模型，字段口径（例如 `name` 是 Base64）
@@ -153,13 +171,13 @@ AssertionError: .accepted_renderer not set on Response
 ```bash
 cd server-python/platform_server
 
-# 1) 接口测试（不需要 MySQL）。97 项（登录 29 + 玩家管理 55 + 建库脚本自检 13）。
+# 1) 接口测试（不需要 MySQL）。129 项（登录 29 + 玩家管理 55 + 房间管理 32 + 建库脚本自检 13）。
 PLATFORM_DB_ENGINE=sqlite ../.venv/bin/python manage.py test
 
 # 1b) 建库 SQL 是否与迁移一致（改了模型必跑）
 ./scripts/check_sql_fresh.sh
 
-# 2) 真实 HTTP 端到端。58 项（登录 24 + 玩家管理 24 + 内部校验接口 10）。
+# 2) 真实 HTTP 端到端。74 项（登录 24 + 玩家管理 24 + 内部校验接口 10 + 房间管理 16）。
 #    启停一律用 ./scripts/run.sh（等价于 runserver --noreload + 健康检查）：
 ./scripts/run.sh                       # 启动（等健康检查通过）
 ./scripts/e2e_login_check.sh           # 打真实接口

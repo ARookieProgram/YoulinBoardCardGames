@@ -11,17 +11,25 @@
 
 ## 1. 本期范围
 
-已交付**登录闭环 + 后台骨架**：
+已交付**登录闭环 + 后台骨架 + 玩家管理 + 房间管理**：
 
 * 登录页（表单校验、错误提示、回车提交、后端可达性探测）；
 * 登录态管理（Pinia store + localStorage 持久化）；
 * 请求层（axios 拦截器：拆响应外壳 + **401 自动续期并重放原请求**）；
 * 路由守卫（未登录跳登录页、刷新页面恢复登录态、角色不足挡回控制台）；
 * 后台布局（侧边菜单 + 顶栏 + 退出登录）；
-* 控制台与占位页（玩家管理 / 房间管理 / 对局记录 / 管理员账号）。
+* **玩家管理**：查询 / 房卡展示 / 封禁解封，并预留"对局记录""充值记录"两个查询入口；
+* **房间管理**：只读监控存活房间（列表 / 概览 / 详情：配置、四个座位、所在游戏服），
+  并预留"强制解散"这个运维入口（后端恒返回 `reserved: true`，见
+  `server-python/platform_server/README.md` §6.6）；
+* 控制台与剩余占位页（对局记录 / 管理员账号）。
 
 后续业务页面接进 `src/router/routes.ts` 的 `children` 即可，
 菜单会**自动**多出一项（菜单由路由表派生，见 `src/utils/menu.ts`）。
+
+> 两个已接入的页面都**只读**玩家数据：数据来自后端对玩家库 `db_scmj`
+> 的只读数据源（`t_users` / `t_rooms`），前端不关心它从哪张表来，只认
+> `src/api/` 里的契约类型。
 
 ---
 
@@ -82,15 +90,20 @@ src/
 │   ├─ token.ts            令牌的 localStorage 读写（无依赖，避免循环引用）
 │   ├─ errors.ts           ApiError（业务失败）/ NetworkError（网络层失败）
 │   ├─ client.ts           axios 实例 + 拆外壳 + 401 自动续期
-│   └─ auth.ts             登录 / 刷新 / me / 退出 / 健康检查
+│   ├─ auth.ts             登录 / 刷新 / me / 退出 / 健康检查
+│   ├─ players.ts          玩家管理接口（列表 / 详情 / 封禁解封 / 两个预留入口）
+│   └─ rooms.ts            房间管理接口（列表 / 概览 / 详情 / 预留的强制解散）
 ├─ stores/auth.ts          登录态（当前管理员、登录、登出、拉取身份）
 ├─ router/
 │   ├─ routes.ts           路由表（菜单也从这里派生）
 │   ├─ meta.d.ts           RouteMeta 类型扩展
 │   └─ index.ts            路由器 + 登录守卫 + 令牌失效监听
 ├─ layouts/AdminLayout.vue 后台骨架（侧边菜单 / 顶栏 / 内容区）
-├─ views/                  LoginView / DashboardView / PlaceholderView / NotFoundView
-├─ utils/                  menu.ts（由路由表生成菜单）、format.ts
+├─ views/                  LoginView / DashboardView / PlayerListView / RoomListView
+│                          / PlaceholderView / NotFoundView
+├─ components/             PlayerDetailDrawer.vue / RoomDetailDrawer.vue
+├─ utils/                  menu.ts（由路由表生成菜单）、format.ts、
+│                          room.ts（房间的展示口径：玩法/自摸/点杠花的中文名等）
 └─ assets/main.css         全局样式
 ```
 
