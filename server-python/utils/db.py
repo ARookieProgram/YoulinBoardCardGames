@@ -476,8 +476,14 @@ async def set_room_id_of_user(userId: Any, roomId: Any) -> bool:
     """设置玩家当前房间（`roomId` 为 None 时写 SQL 的 `null`）。
 
     **历史 bug（移植不修）**：与 `cost_gems` 同因，回调**恒为 False**。
+
+    注意 `None` 这一支必须拼 **`null` 这个小写字面量**：原实现是字符串拼接
+    `'UPDATE ... roomid = ' + null`，JS 会把 `null` 转成 `"null"`；Python 的 f-string
+    则会把 `None` 渲染成 `"None"`，MySQL 会把它当成一个不存在的列而报错，
+    于是"解散房间后清空玩家 roomid"这一步**静默失败**——玩家在库里仍然留在已解散的
+    房间，之后建房会被大厅服以 `user is playing in room now.` 拒绝。
     """
-    room_id_sql = f'"{roomId}"' if roomId is not None else None
+    room_id_sql = f'"{roomId}"' if roomId is not None else "null"
     sql = f'UPDATE t_users SET roomid = {room_id_sql} WHERE userid = "{userId}"'
     print(sql)
     try:
