@@ -4,8 +4,11 @@
  *
  * 三个 Tab：
  *  1. **基础信息**——玩家只读字段（含房卡 `gems`）与封禁流水；
- *  2. **对局记录**——**预留入口**，后端返回 `reserved: true`，这里展示"待接入"；
- *  3. **充值记录**——同上。
+ *  2. **对局记录**——**真实数据**：从 `t_users.history` 读该玩家最近 10 场的
+ *     房间战绩（房间号 / 时间 / 四家总分 / 我的得分与名次 / 该房间局数）；
+ *     想看出牌明细就点"本房间对局"跳到「对局记录」页
+ *     （`/games?player_id=…`，逐局出牌记录在那里）。
+ *  3. **充值记录**——**预留入口**，后端返回 `reserved: true`，这里展示"待接入"。
  *
  * 抽屉本身**只读**：封禁 / 解封由 `PlayerListView` 统一处理（弹窗 + 二次确认），
  * 这里只把按钮事件抛给父组件，避免两处各写一套提交逻辑。
@@ -14,12 +17,14 @@
  */
 
 import { computed, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
-import { getPlayer, listPlayerGames, listPlayerRecharges } from '@/api/players'
+import { getPlayer, listPlayerRecharges } from '@/api/players'
 import { ApiError } from '@/api/errors'
 import type { PlayerBanRecord, PlayerDetail, PlayerReservedResult } from '@/api/types'
 import { formatDateTime } from '@/utils/format'
+import PlayerGamesTable from '@/components/PlayerGamesTable.vue'
 
 const props = defineProps<{
   /** 抽屉是否可见（v-model）。 */
@@ -38,6 +43,8 @@ const emit = defineEmits<{
   (event: 'unban', player: PlayerDetail): void
 }>()
 
+const router = useRouter()
+
 /** 抽屉可见性。 */
 const visible = computed({
   get: () => props.modelValue,
@@ -53,12 +60,10 @@ const loading = ref(false)
 const loadError = ref('')
 
 /** 预留 Tab 的返回（`null` = 还没加载过）。 */
-const reserved = reactive<Record<'games' | 'recharges', PlayerReservedResult | null>>({
-  games: null,
+const reserved = reactive<Record<'recharges', PlayerReservedResult | null>>({
   recharges: null,
 })
-const reservedLoading = reactive<Record<'games' | 'recharges', boolean>>({
-  games: false,
+const reservedLoading = reactive<Record<'recharges', boolean>>({
   recharges: false,
 })
 
@@ -91,14 +96,13 @@ async function loadDetail(): Promise<void> {
 }
 
 /** 拉预留 Tab 的数据（每个 Tab 只拉一次）。 */
-async function loadReserved(tab: 'games' | 'recharges'): Promise<void> {
+async function loadReserved(tab: 'recharges'): Promise<void> {
   const playerId = props.playerId
   if (playerId === null || reserved[tab] !== null || reservedLoading[tab]) return
 
   reservedLoading[tab] = true
   try {
-    reserved[tab] =
-      tab === 'games' ? await listPlayerGames(playerId) : await listPlayerRecharges(playerId)
+    reserved[tab] = await listPlayerRecharges(playerId)
   } catch (error) {
     ElMessage.error(error instanceof ApiError ? error.message : '查询入口加载失败')
   } finally {
@@ -106,9 +110,9 @@ async function loadReserved(tab: 'games' | 'recharges'): Promise<void> {
   }
 }
 
-/** 切 Tab 时按需加载。 */
+/** 切 Tab 时按需加载（对局记录由 `PlayerGamesTable` 自己加载）。 */
 watch(activeTab, (tab) => {
-  if (tab === 'games' || tab === 'recharges') {
+  if (tab === 'recharges') {
     void loadReserved(tab)
   }
 })
@@ -119,12 +123,11 @@ watch(
   ([open]) => {
     if (!open) return
     activeTab.value = props.initialTab ?? 'basic'
-    reserved.games = null
     reserved.recharges = null
     detail.value = null
     void loadDetail()
-    if (activeTab.value === 'games' || activeTab.value === 'recharges') {
-      void loadReserved(activeTab.value)
+    if (activeTab.value === 'recharges') {
+      void loadReserved('recharges')
     }
   },
   { immediate: true },
@@ -138,6 +141,25 @@ function handleBan(): void {
 /** 解封按钮：交给父组件处理。 */
 function handleUnban(): void {
   if (detail.value) emit('unban', detail.value)
+}
+
+/**
+ * 到「对局记录」页看这位玩家的全部对局。
+ *
+ * 抽屉里的表格只能看到"房间级"的战绩快照（`t_users.history` 最多 10 场），
+ * 逐局出牌记录要先定位到房间，所以这里带着 `player_id` 跳页。
+ */
+function goGamesPage(): void {
+  const playerId = props.playerId
+  if (playerId === null) return
+  visible.value = false
+  void router.push({ name: 'games', query: { player_id: String(playerId) } })
+}
+
+/** 打开某个房间的全部对局（同样跳到「对局记录」页，带上房间号）。 */
+function handleOpenRoom(payload: { roomRef: string }): void {
+  visible.value = false
+  void router.push({ name: 'games', query: { room: payload.roomRef } })
 }
 
 /** 供父组件在封禁 / 解封后刷新详情（抽屉没开时不必发请求）。 */
@@ -228,17 +250,23 @@ defineExpose({ reload })
           </el-table>
         </el-tab-pane>
 
-        <!-- 预留：对局记录 -->
+        <!-- 对局记录（真实数据：t_users.history 的房间级战绩快照） -->
         <el-tab-pane label="对局记录" name="games">
-          <el-skeleton v-if="reservedLoading.games" :rows="4" animated />
-          <el-empty v-else description="对局记录查询入口已预留，数据源待接入">
+          <div class="player-games-head">
             <el-text size="small" type="info">
-              {{ reserved.games?.message ?? '正在读取接口说明…' }}
+              游戏服在房间打完后给四家各写一条战绩快照，每人只保留最近 10 场；
+              逐局出牌记录要点进房间看。
             </el-text>
-            <p v-if="reserved.games" class="reserved-source">
-              计划数据来源：{{ reserved.games.source }}
-            </p>
-          </el-empty>
+            <el-button link type="primary" size="small" @click="goGamesPage">
+              在「对局记录」页打开
+            </el-button>
+          </div>
+          <PlayerGamesTable
+            v-if="activeTab === 'games'"
+            :player-id="playerId"
+            :auto-load="true"
+            @open-room="handleOpenRoom"
+          />
         </el-tab-pane>
 
         <!-- 预留：充值记录 -->
@@ -284,5 +312,13 @@ defineExpose({ reload })
   font-size: 12px;
   line-height: 1.6;
   color: var(--admin-text-secondary);
+}
+
+.player-games-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
 }
 </style>

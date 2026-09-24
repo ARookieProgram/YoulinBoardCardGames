@@ -6,7 +6,8 @@
 * 详情：玩家字段 + 封禁流水；不存在时 `12001`；
 * 封禁 / 解封：写流水、状态流转、重复操作的业务码、角色下限（`10003`）；
 * 概览：玩家总数与封禁中人数；
-* 预留端点：对局记录 / 充值记录的契约（`reserved: true`）且**不碰玩家库**；
+* 预留端点：充值记录的契约（`reserved: true`）且**不碰玩家库**
+  （对局记录已搬到 `apps/games/`，见 `tests/test_games.py`）；
 * **只读隔离**：玩家库那条路径上执行的每一条 SQL 都必须是 SELECT。
 
 玩家夹具建在**玩家库别名**（`DATABASES["player"]`）的测试库上：SQLite 下是内存库，
@@ -433,24 +434,11 @@ class PlayerOverviewTests(PlayerTestBase):
 
 
 class ReservedEndpointTests(PlayerTestBase):
-    """预留入口：对局记录 / 充值记录。"""
+    """预留入口：充值记录。
 
-    def test_games_endpoint_contract(self) -> None:
-        """对局记录入口返回与列表一致的分页形状 + reserved 标记。"""
-        response = self.client.get(f"{LIST_URL}1001/games/", {"page": 1, "page_size": 20})
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertEqual(body["code"], 0)
-        data = body["data"]
-        self.assertIs(data["reserved"], True)
-        self.assertEqual(data["feature"], "games")
-        self.assertEqual(data["player_id"], 1001)
-        self.assertEqual(data["items"], [])
-        self.assertEqual(data["total"], 0)
-        self.assertEqual(data["pages"], 0)
-        for key in ("items", "total", "page", "page_size", "pages"):
-            self.assertIn(key, data)
-        self.assertIn("t_games", data["source"])
+    对局记录**已经落地**，不在本应用里——它搬到了 `apps/games/`
+    （`/api/games/players/<id>/`），测试见 `tests/test_games.py`。
+    """
 
     def test_recharges_endpoint_contract(self) -> None:
         """充值记录入口同样已预留。"""
@@ -460,23 +448,29 @@ class ReservedEndpointTests(PlayerTestBase):
         self.assertIs(data["reserved"], True)
         self.assertEqual(data["feature"], "recharges")
         self.assertEqual(data["items"], [])
+        for key in ("items", "total", "page", "page_size", "pages"):
+            self.assertIn(key, data)
+
+    def test_games_endpoint_is_gone(self) -> None:
+        """`/api/players/<id>/games/` 已经搬走：它不该再是一份"预留"的空壳。"""
+        response = self.client.get(f"{LIST_URL}1001/games/")
+        self.assertEqual(response.status_code, 404)
 
     def test_reserved_endpoints_do_not_touch_player_db(self) -> None:
         """预留端点在数据源未接入前**不访问玩家库**（连一条 SQL 都不发）。"""
         with CaptureQueriesContext(connections[PLAYER_DB]) as captured:
-            self.client.get(f"{LIST_URL}1001/games/")
             self.client.get(f"{LIST_URL}1001/recharges/")
         self.assertEqual(len(captured.captured_queries), 0)
 
     def test_reserved_endpoint_validates_pagination(self) -> None:
         """分页参数此刻就校验，接上数据源时前端不用改。"""
-        response = self.client.get(f"{LIST_URL}1001/games/", {"page_size": 0})
+        response = self.client.get(f"{LIST_URL}1001/recharges/", {"page_size": 0})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], 10001)
 
     def test_reserved_endpoint_requires_login(self) -> None:
         """预留端点同样需要登录。"""
-        response = APIClient().get(f"{LIST_URL}1001/games/")
+        response = APIClient().get(f"{LIST_URL}1001/recharges/")
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json()["code"], 10002)
 
@@ -594,6 +588,24 @@ class InitPlayerDevCommandTests(PlayerTestBase):
         accounts = {item["account"] for item in data["items"]}
         self.assertIn("guest_demo1", accounts)
         self.assertGreater(data["total"], len(PLAYERS))
+
+    def test_seeds_with_query_logging_enabled(self) -> None:
+        """命令里的 SQL 必须用 Django 的 `%s` 占位符，而不是 SQLite 的 `?`。
+
+        `?` 只在 `executemany` 下侥幸能用：`execute` 一旦开启查询日志
+        （DEBUG=True，或任何 `CaptureQueriesContext`）就会走
+        `last_executed_query()` 的 `sql % params`，qmark 占位符会直接抛
+        `TypeError: not all arguments converted during string formatting`。
+        这个坑只在真实 `runserver`（DEBUG 默认开）下暴露，测试默认 DEBUG=False，
+        所以这里显式把查询日志打开。
+        """
+        if connections[PLAYER_DB].vendor != "sqlite":
+            self.skipTest("本命令只服务 SQLite 离线库")
+        with CaptureQueriesContext(connections[PLAYER_DB]) as captured:
+            call_command("init_player_dev", "--reset")
+        self.assertGreater(len(captured.captured_queries), 0)
+        # 样例是 6 个玩家（见 init_player_dev.SAMPLE_PLAYERS），`--reset` 之后只剩它们。
+        self.assertEqual(self.list_players(page_size=100)["total"], 6)
 
 
 INTERNAL_KEY = "test-internal-key"

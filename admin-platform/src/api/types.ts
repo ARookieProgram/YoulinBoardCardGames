@@ -46,6 +46,8 @@ export const ErrorCode = {
   PLAYER_SOURCE_UNAVAILABLE: 12004,
   /** 房间不存在或已结束（房间打完 / 解散后会从库里删掉）。 */
   ROOM_NOT_FOUND: 13001,
+  /** 对局记录不存在（每结束一局才写库；还没打完 / 从未开局时查不到）。 */
+  GAME_NOT_FOUND: 14001,
 } as const
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -198,16 +200,19 @@ export interface PlayersOverview {
 }
 
 /**
- * 预留查询入口（对局记录 / 充值记录）的返回。
+ * 预留查询入口（充值记录）的返回。
  *
  * 形状与 `PageResult` 完全一致，只是目前 `items` 恒为空、多了 `reserved` 标记。
  * 后端接上真实数据源后这几个键不变，前端不需要改契约。
+ *
+ * 注意：**对局记录已经不是预留入口了**，它落地成了独立的 `/api/games/`
+ * （见本文件下半部分与 `api/games.ts`）。
  */
 export interface PlayerReservedResult extends PageResult<never> {
   /** 恒为 `true`，表示数据源尚未接入。 */
   reserved: true
   player_id: number
-  /** 功能标识：`games` / `recharges`。 */
+  /** 功能标识：目前只有 `recharges`。 */
   feature: string
   /** 计划的数据来源说明。 */
   source: string
@@ -329,3 +334,259 @@ export interface RoomsOverview {
   created_last_24h: number
 }
 
+// ---------------------------------------------------------------- 对局记录
+
+/**
+ * 对局来自哪张表。
+ *
+ * 游戏服每开一局就往 `t_games` 写一行，房间打完 / 被解散时整批搬进
+ * `t_games_archive` 并删掉在局行（见 `player_source.GAME_TABLE_SOURCES`）。
+ */
+export type GameSource = 'archive' | 'live'
+
+/** 对局里的玩家身份是从哪儿查到的（与后端 `GAME_IDENTITY_*` 一致）。 */
+export type GameIdentitySource = 'rooms' | 'history' | 'unknown'
+
+/**
+ * 出牌流水的动作编号（与 `gamemgr` 顶部常量、客户端 `ReplayMgr` 逐字一致）。
+ */
+export const GameActionCode = {
+  CHUPAI: 1,
+  MOPAI: 2,
+  PENG: 3,
+  GANG: 4,
+  HU: 5,
+  ZIMO: 6,
+} as const
+
+/** 六个动作分类的计数（后端 `action_summary`）。 */
+export interface GameActionSummary {
+  chupai: number
+  mopai: number
+  peng: number
+  gang: number
+  hu: number
+  zimo: number
+}
+
+/**
+ * 一局里的一个座位。
+ *
+ * * `score` —— **本局**得分（来自 `t_games.result`，一定有）；
+ * * `room_score` —— **房间累计**得分（存活房间来自 `t_rooms`，已销毁房间来自
+ *   `t_users.history`）；身份查不到时是 `null`（不是 0，0 会被误读成"打平"）。
+ */
+export interface GameSeat {
+  seat_index: number
+  player_id: number
+  name: string
+  /** 昵称 → `玩家#ID` → `座位N`（后端算好的展示名）。 */
+  display_name: string
+  icon: string
+  occupied: boolean
+  /** 本局庄家（每局可能不同，来自 `base_info.button`）。 */
+  is_banker: boolean
+  score: number
+  room_score?: number | null
+}
+
+/** 列表与详情共用的对局行（后端 `game_row_payload`）。 */
+export interface GameSummary {
+  /** 房间 uuid：**详情接口认的主键**（`t_games` 里没有房间号）。 */
+  room_uuid: string
+  /** 6 位房间号；由存活房间表、战绩快照或 uuid 反推得到。 */
+  room_id: string
+  /** 游戏服的局号，从 0 开始。 */
+  game_index: number
+  /** 给运营看的"第几局"（`game_index + 1`）。 */
+  round: number
+  source: GameSource
+  /** 中文来源名（进行中 / 已结束）。 */
+  source_label: string
+  type: string
+  /** 玩法名（与大厅一致，未知玩法回退成原始标识）。 */
+  type_label: string
+  /** 本局庄家的座位号。 */
+  button: number
+  create_time: number
+  /** `YYYY-MM-DD HH:mm:ss`（后端已按 Asia/Shanghai 格式化）。 */
+  created_at: string
+  /** 四个座位的本局得分（与 `seats[].score` 同源）。 */
+  result: number[]
+  seats: GameSeat[]
+  seat_count: number
+  identity_source: GameIdentitySource
+  /** 身份来源的中文说明（给运营看的）。 */
+  identity_note: string
+  /** 房间是否还在 `t_rooms` 里（没被销毁）。 */
+  live: boolean
+  has_action_records: boolean
+  action_count: number
+  action_summary: GameActionSummary
+  /** 有开局快照或流水，可以点进详情。 */
+  detail_available: boolean
+}
+
+/** 出牌时间线里的一个动作（后端 `timeline` 元素）。 */
+export interface GameAction {
+  /** 从 1 开始的序号（全局时间线里的第几个动作）。 */
+  seq: number
+  seat_index: number
+  /** 动作编号，见 `GameActionCode`。 */
+  action: number
+  /** 中文动作名（出牌 / 摸牌 / 碰 / 杠 / 胡 / 自摸）。 */
+  action_label: string
+  /** 短动作名（打 / 摸 / 碰 / 杠 / 胡 / 自摸）。 */
+  action_short: string
+  /** 牌 id（0~8 筒 / 9~17 条 / 18~26 万）；未知是 -1。 */
+  tile: number
+  /** 中文牌面（`五筒` / `一万`）。 */
+  tile_label: string
+  /** 客户端图集名（`dot_5` / `character_1`）。 */
+  tile_code: string
+  tile_suit: number | null
+  /** 详情时间线才有：`座位0`。 */
+  seat_label?: string
+  /** 详情时间线才有：座位上玩家的 ID / 展示名。 */
+  player_id?: number
+  seat_name?: string
+  is_banker?: boolean
+  /** 详情时间线才有：这张打出的牌被谁拿走（碰 / 杠 / 胡）。 */
+  taken_by?: {
+    seat_index: number
+    name: string
+    action: number
+    action_label: string
+  }
+}
+
+/** 单个玩家的动作视图（后端 `seat_actions`）——**他这一局打了什么**。 */
+export interface GameSeatActions extends GameSeat {
+  actions: GameAction[]
+  action_count: number
+  summary: GameActionSummary
+  /** 打出的牌（按顺序，带"被谁拿走"标注）。 */
+  folds: GameAction[]
+  folds_text: string
+  drawn: GameAction[]
+  drawn_text: string
+  pengs: GameAction[]
+  pengs_text: string
+  gangs: GameAction[]
+  gangs_text: string
+  hued: boolean
+  /** 是否自摸胡。 */
+  zimo: boolean
+  win_tiles: GameAction[]
+  win_text: string
+}
+
+/** 开局手牌（后端 `initial_hands`）。 */
+export interface GameInitialHand {
+  seat_index: number
+  player_id: number
+  name: string
+  tiles: {
+    tile: number
+    tile_label: string
+    tile_code: string
+    tile_suit: number | null
+  }[]
+  tile_count: number
+  tiles_text: string
+}
+
+/** 牌墙消耗（后端 `wall`）。 */
+export interface GameWall {
+  /** 洗好的张数（108）。 */
+  size: number
+  /** 已发出的张数（起手 53）。 */
+  dealt: number
+  /** 被摸走的张数（时间线里 `ACTION_MOPAI` 的条数）。 */
+  drawn: number
+  /** 还剩多少张没摸。 */
+  remaining: number
+  /** 洗好的牌墙（id 序列，排查问题时用）。 */
+  tiles: number[]
+}
+
+/** 单局详情（后端 `game_detail_payload`）：在列表行的基础上多出出牌记录。 */
+export interface GameDetail extends GameSummary {
+  /** 解析流水时的警告（脏数据不报错，只提示）。 */
+  warnings: string[]
+  /** 全局动作时间线（按发生顺序）。 */
+  timeline: GameAction[]
+  /** 每个玩家自己的动作与出牌顺序。 */
+  seat_actions: GameSeatActions[]
+  initial_hands: GameInitialHand[]
+  initial_hands_text: string[]
+  wall: GameWall
+}
+
+/** 房间级座位：只有累计得分，没有本局得分。 */
+export interface RoomGameSeat {
+  seat_index: number
+  player_id: number
+  name: string
+  display_name: string
+  icon: string
+  occupied: boolean
+  is_banker: boolean
+  room_score: number | null
+}
+
+/** 一个房间的全部对局（后端 `room_games_payload`）。 */
+export interface RoomGameList {
+  room_uuid: string
+  room_id: string
+  type: string
+  type_label: string
+  live: boolean
+  identity_source: GameIdentitySource
+  identity_note: string
+  seats: RoomGameSeat[]
+  game_count: number
+  games: GameSummary[]
+}
+
+/** 玩家战绩里的座位：在普通座位之上标出"哪一位是我"。 */
+export interface PlayerGameSeat extends GameSeat {
+  is_me: boolean
+}
+
+/** 玩家的一条房间战绩（后端 `player_game_payload`，来自 `t_users.history`）。 */
+export interface PlayerGameRecord {
+  room_uuid: string
+  room_id: string
+  create_time: number
+  created_at: string
+  seats: PlayerGameSeat[]
+  seat_count: number
+  /** 该玩家坐在几号位；榜单里找不到时是 `null`。 */
+  my_seat: number | null
+  /** 该玩家在这局的房间累计得分。 */
+  my_score: number
+  /** 按房间累计得分排的名次（并列同名次）。 */
+  my_rank: number | null
+  /** 该房间在 `t_games` / `t_games_archive` 里的局数。 */
+  game_count: number
+  games_available: boolean
+}
+
+/** 玩家对局列表的返回：分页形状 + 一致性说明。 */
+export interface PlayerGamesResult extends PageResult<PlayerGameRecord> {
+  player_id: number
+  /** 玩家侧战绩快照的上限（游戏服只保留最近 10 场）。 */
+  max_entries: number
+  /** 给运营看的说明（为什么只有最近这些场）。 */
+  note: string
+}
+
+/** 对局记录列表页顶部的概览数字。 */
+export interface GamesOverview {
+  total_games: number
+  archived_games: number
+  live_games: number
+  games_last_24h: number
+  rooms_last_24h: number
+}

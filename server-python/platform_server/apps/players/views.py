@@ -7,8 +7,10 @@
 | GET | `/api/players/<id>/` | 登录即可 | 玩家详情 + 封禁流水 |
 | POST | `/api/players/<id>/ban/` | 管理员及以上 | 封禁（可限时） |
 | POST | `/api/players/<id>/unban/` | 管理员及以上 | 解封 |
-| GET | `/api/players/<id>/games/` | 登录即可 | **预留**：对局记录 |
 | GET | `/api/players/<id>/recharges/` | 登录即可 | **预留**：充值记录 |
+
+**对局记录不在这里**：它已经落地成独立的 `apps/games/`（`/api/games/players/<id>/`），
+本应用只保留充值记录这个仍缺数据源的预留入口。
 
 权限口径：看数据是运营的日常（`operator` 及以上都能看），
 **改玩家状态是管理员及以上**的操作，所以封禁 / 解封多挂一层 `IsAdminOrAbove`。
@@ -260,14 +262,6 @@ class _ReservedPlayerView(APIView):
             ),
             message="该查询入口已预留，数据源待接入",
         )
-
-
-class PlayerGamesView(_ReservedPlayerView):
-    """`GET /api/players/<player_id>/games/` —— **预留**：对局记录。"""
-
-    feature = "games"
-    source = "计划来源：玩家库 t_users.history（房间 uuid 列表）+ t_games / t_games_archive"
-    message = "对局记录查询入口已预留：房间 uuid 在 t_users.history 里，逐局明细在 t_games，数据源待接入。"
 
 
 class PlayerRechargesView(_ReservedPlayerView):

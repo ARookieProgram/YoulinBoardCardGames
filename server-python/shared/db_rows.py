@@ -104,6 +104,21 @@ class GameRow(TypedDict):
     result: str | None
 
 
+class GameListRow(TypedDict):
+    """`get_games_of_room` 的三列投影（对应 Node 版的 `GameListRow`）。"""
+
+    game_index: int
+    create_time: int
+    result: str | None
+
+
+class GameDetailRow(TypedDict):
+    """`get_detail_of_game` 的两列投影（对应 Node 版的 `GameDetailRow`）。"""
+
+    base_info: str
+    action_records: str | None
+
+
 class MessageRow(TypedDict):
     """`t_message` 行（`SELECT *`）。"""
 

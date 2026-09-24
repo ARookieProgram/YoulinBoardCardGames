@@ -35,6 +35,8 @@ import pymysql.err
 from shared.config import MysqlConfig
 from shared.db_rows import (
     AccountRow,
+    GameDetailRow,
+    GameListRow,
     GameRow,
     MessageRow,
     RoomAddrRow,
@@ -50,6 +52,8 @@ from . import crypto
 __all__ = [
     "AccountRow",
     "DbError",
+    "GameDetailRow",
+    "GameListRow",
     "GameRow",
     "MessageRow",
     "QueryResult",
@@ -723,6 +727,81 @@ async def update_game_result(room_uuid: str, index: int, result: Any) -> bool:
         print(error)
         return False
     return True
+
+
+# 下面两个是**客户端战绩回放**用的读查询（大厅服 `/get_games_of_room` 与
+# `/get_detail_of_game`），只查归档表 `t_games_archive`——房间打完后
+# `archive_games()` 会把在局行搬进去，所以客户端回放永远看的是归档表。
+
+
+async def get_games_of_room(room_uuid: Any) -> list[GameListRow] | None:
+    """取某房间的逐局战绩（`game_index` / `create_time` / `result` 三列投影）。
+
+    行为逐条对齐 Node 版 `get_games_of_room`：
+
+    * `room_uuid` 为 `None` 时**不发 SQL**，直接返回 `None`；
+    * 查不到任何行也返回 `None`（客户端 `History.ts` 对 `null` 与空数组一视同仁）；
+    * 出错时 Node 版是"回调 null 再 `throw`"（会把进程带走），Python 版按本文件的
+      统一约定记日志并返回 `None`（见模块文档的第 2 条差异）。
+
+    :param room_uuid: 房间 uuid（`t_rooms.uuid`，游戏服生成的是 19 位数字串）。
+    :return: 逐局行的列表（`result` 仍是 JSON 文本，由客户端自己 parse）；
+        没有数据或出错时 `None`。
+    """
+    if room_uuid is None:
+        return None
+
+    sql = 'SELECT game_index,create_time,result FROM t_games_archive WHERE room_uuid = "' + str(room_uuid) + '"'
+    try:
+        result = await query(sql)
+    except DbError as error:
+        print(error)
+        return None
+
+    games = _rows(result)
+
+    if len(games) == 0:
+        return None
+
+    return games  # type: ignore[return-value]
+
+
+async def get_detail_of_game(room_uuid: Any, index: Any) -> GameDetailRow | None:
+    """取某一局的开局快照与出牌流水（`base_info` / `action_records` 两列投影）。
+
+    与 `get_games_of_room` 同一套取舍：参数缺一不发 SQL、查不到返回 `None`、
+    出错记日志返回 `None`；有行时**只取第一行**（主键是 `room_uuid + game_index`，
+    最多一行）。
+
+    `index` 照原实现**直接拼进 SQL**（Node 版是 `'... AND game_index = ' + index`）：
+    它来自查询串，形态不对时 MySQL 会报错，这里记日志后返回 `None`
+    ——与原实现"抛异常"的可观察结果一致（客户端拿到 `data: null`），
+    区别只是不会带走进程。
+
+    :param room_uuid: 房间 uuid。
+    :param index: 局号（`t_games.game_index`，从 0 开始）。
+    :return: `{base_info, action_records}`（两个字段都是 JSON 文本）；没有数据时 `None`。
+    """
+    if room_uuid is None or index is None:
+        return None
+
+    sql = (
+        'SELECT base_info,action_records FROM t_games_archive WHERE room_uuid = "'
+        + str(room_uuid)
+        + '" AND game_index = '
+        + str(index)
+    )
+    try:
+        result = await query(sql)
+    except DbError as error:
+        print(error)
+        return None
+
+    games = _rows(result)
+
+    if len(games) == 0:
+        return None
+    return games[0]  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------

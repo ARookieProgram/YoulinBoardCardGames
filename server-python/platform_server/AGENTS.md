@@ -50,6 +50,14 @@
 房间数据同样**不落本平台的库**（`apps/rooms/` 没有模型，所以也**不用**加进
 `scripts/gen_sql.py` 的 `PLATFORM_APP_LABELS`）。
 
+**对局记录**（`apps/games/`）是同一个红线的第三个落点：`t_games` / `t_games_archive`
+也在玩家库里，同样走 `player_source.py`（对局查询就在该文件"对局记录"那一段）。
+`tests/test_games.py::GameSourceIsolationTests` 用 AST 与执行期两种方式钉住这一点；
+本应用同样**没有模型、没有迁移**，也不用加进 `PLATFORM_APP_LABELS`。
+它有一个别的应用没有的东西：`apps/games/decoding.py` —— **全平台唯一"懂玩法"的文件**
+（牌 id 0~26、动作编号 1~6）。改它要同步看 `repo:docs/ai-native/game-rules.md`
+与游戏服两份 `gamemgr_*`，因为后台展示的"出牌记录"必须与客户端回放是同一个口径。
+
 第 1 条说的是"不要顺手去读玩家表"，第 5 条是它的**唯一例外通道**：
 要走 `player_source`，不要另开第二条。凡是往玩家库写的想法（包括封禁状态）
 都属于游戏服务端的范畴，必须成对改 `repo:server/` 与 `repo:server-python/`，
@@ -77,9 +85,13 @@ platform_server/
 ├─ apps/common/                  响应外壳 / 错误码 / 异常 / 分页 / IP
 ├─ apps/accounts/                管理平台账号体系（模型 / 序列化 / 视图 / 权限）
 ├─ apps/players/                 玩家管理（只读玩家库 player_source：t_users + t_rooms
-│                                 + 封禁流水 PlayerBan + 给游戏服的内部校验 internal.py）
+│                                 + t_games / t_games_archive；封禁流水 PlayerBan
+│                                 + 给游戏服的内部校验 internal.py）
 ├─ apps/rooms/                   房间管理（只读监控 t_rooms；**没有模型**，
 │                                 只有 serializers / views / urls / exceptions）
+├─ apps/games/                   对局记录（只读监控 t_games / t_games_archive；**没有模型**；
+│                                 decoding.py 是唯一懂玩法口径的地方：
+│                                 牌 id 与动作流水的解读）
 ├─ sql/db_scmj_admin.sql         **生成产物**：建库脚本（不要手改，见 §4.4）
 └─ scripts/
     ├─ run.sh / serve.py         启停脚本（start/stop/restart/status/logs/init/check）
@@ -127,14 +139,15 @@ AssertionError: .accepted_renderer not set on Response
 `apps/accounts/error_codes.py`、`apps/players/error_codes.py`、
 `apps/rooms/error_codes.py` 都只是转出口，不是第二份定义。
 新增登录相关码加在 `11xxx` 段，玩家管理相关码加在 `12xxx` 段，
-房间管理相关码加在 `13xxx` 段；
+房间管理相关码加在 `13xxx` 段，对局记录相关码加在 `14xxx` 段；
 前端对应常量在 `repo:admin-platform/src/api/types.ts` 的 `ErrorCode`，要同步改。
 内部接口（`/api/internal/`）的签名失败复用通用 `10003`、未配置密钥用 `10500`，
 没有单开新码——它们不是给玩家看的业务错误。
 
-**"玩家库连不上"只有一个码**（`12004`）：房间数据与玩家数据来自同一条只读数据源，
-运维处置方式相同，所以房间侧**不要**再开一个 `13xxx` 的"数据源不可用"。
-房间侧目前只有 `13001`（房间不存在）。
+**"玩家库连不上"只有一个码**（`12004`）：房间数据、对局数据与玩家数据来自同一条
+只读数据源，运维处置方式相同，所以房间侧与对局侧都**不要**再各开一个
+"数据源不可用"。房间侧目前只有 `13001`（房间不存在），
+对局侧只有 `14001`（对局不存在——游戏服每结束一局才写库，所以"还没打完"也会是它）。
 
 ### 4.4 `sql/db_scmj_admin.sql` 是**生成产物**，不要手改
 
@@ -155,12 +168,12 @@ AssertionError: .accepted_renderer not set on Response
 
 `settings.DATABASES["player"]` 是玩家库（`db_scmj`）的**只读**别名：
 
-* 只有 `apps/players/player_source.py` 用它（`t_users` 与 `t_rooms` 都走它），
-  SQL 必须过 `_assert_read_only()`（单条 SELECT）。
+* 只有 `apps/players/player_source.py` 用它（`t_users` / `t_rooms` /
+  `t_games` / `t_games_archive` 都走它），SQL 必须过 `_assert_read_only()`（单条 SELECT）。
   **不要**在这个别名上跑迁移、建表或写数据；
 * 别名的 `TEST.NAME` 是 `None`：测试库由 Django 另建（SQLite 内存库 / MySQL 的
-  `test_db_scmj`），`tests/test_players.py` 与 `tests/test_rooms.py` 各自
-  `CREATE TABLE`。所以**跑 `manage.py test` 永远不会碰真实 `db_scmj`**；
+  `test_db_scmj`），`tests/test_players.py` / `test_rooms.py` / `test_games.py`
+  各自 `CREATE TABLE`。所以**跑 `manage.py test` 永远不会碰真实 `db_scmj`**；
 * 玩家库连不上时接口返回 `12004`（503），不是 500。新增玩家相关查询时，
   让异常冒到 `PlayerSourceUnavailable`，不要在视图里吞掉；
 * 玩家表**没有**对应 Django 模型，字段口径（例如 `name` 是 Base64）
@@ -171,13 +184,13 @@ AssertionError: .accepted_renderer not set on Response
 ```bash
 cd server-python/platform_server
 
-# 1) 接口测试（不需要 MySQL）。129 项（登录 29 + 玩家管理 55 + 房间管理 32 + 建库脚本自检 13）。
+# 1) 接口测试（不需要 MySQL）。179 项（登录 29 + 玩家管理 56 + 房间管理 32 + 对局记录 49 + 建库脚本自检 13）。
 PLATFORM_DB_ENGINE=sqlite ../.venv/bin/python manage.py test
 
 # 1b) 建库 SQL 是否与迁移一致（改了模型必跑）
 ./scripts/check_sql_fresh.sh
 
-# 2) 真实 HTTP 端到端。74 项（登录 24 + 玩家管理 24 + 内部校验接口 10 + 房间管理 16）。
+# 2) 真实 HTTP 端到端。93 项（登录 24 + 玩家管理 23 + 内部校验接口 10 + 房间管理 16 + 对局记录 20）。
 #    启停一律用 ./scripts/run.sh（等价于 runserver --noreload + 健康检查）：
 ./scripts/run.sh                       # 启动（等健康检查通过）
 ./scripts/e2e_login_check.sh           # 打真实接口

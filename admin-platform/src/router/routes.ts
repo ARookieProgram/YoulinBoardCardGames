@@ -52,14 +52,16 @@ export const routes: RouteRecordRaw[] = [
         component: () => import('@/views/RoomListView.vue'),
         meta: { title: '房间管理', icon: 'Grid' },
       },
-      // 以下页面本期只放占位内容，接口接入后替换组件即可。
-      // 它们已经带上了登录守卫与后台布局，不需要再改路由结构。
+      // 对局记录已接入真实接口：对局列表 / 概览 / 单个房间的全部对局 /
+      // 单局出牌记录 / 某个玩家的最近战绩（见 GameListView 与 api/games.ts）。
       {
         path: 'games',
         name: 'games',
-        component: () => import('@/views/PlaceholderView.vue'),
+        component: () => import('@/views/GameListView.vue'),
         meta: { title: '对局记录', icon: 'Tickets' },
       },
+      // 以下页面本期只放占位内容，接口接入后替换组件即可。
+      // 它们已经带上了登录守卫与后台布局，不需要再改路由结构。
       {
         path: 'system/admins',
         name: 'admins',

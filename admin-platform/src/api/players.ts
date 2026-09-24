@@ -10,8 +10,10 @@
  * | GET  | `players/<id>/` | 详情 + 封禁流水 |
  * | POST | `players/<id>/ban/` | 封禁（需管理员及以上） |
  * | POST | `players/<id>/unban/` | 解封（需管理员及以上） |
- * | GET  | `players/<id>/games/` | **预留**：对局记录 |
  * | GET  | `players/<id>/recharges/` | **预留**：充值记录 |
+ *
+ * **对局记录不在这里**：它已经落地成独立的 `/api/games/`（见 `api/games.ts` 的
+ * `listPlayerGames`），本文件只保留充值记录这个仍缺数据源的预留入口。
  *
  * 玩家数据由后端通过只读数据源读玩家库，前端只认这里的属性名，
  * 不关心它是从哪张表来的。
@@ -77,18 +79,10 @@ export function unbanPlayer(
 }
 
 /**
- * 预留：玩家对局记录。
+ * 预留：玩家充值记录。
  *
  * 后端返回空列表 + `reserved: true`；接上数据源后同一个函数直接拿到真数据。
  */
-export function listPlayerGames(
-  playerId: number,
-  query: ReservedQuery = {},
-): Promise<PlayerReservedResult> {
-  return get<PlayerReservedResult>(`players/${playerId}/games/`, { params: query })
-}
-
-/** 预留：玩家充值记录。 */
 export function listPlayerRecharges(
   playerId: number,
   query: ReservedQuery = {},

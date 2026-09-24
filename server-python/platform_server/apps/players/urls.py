@@ -11,7 +11,6 @@ from django.urls import path
 from .views import (
     PlayerBanView,
     PlayerDetailView,
-    PlayerGamesView,
     PlayerListView,
     PlayerOverviewView,
     PlayerRechargesView,
@@ -28,7 +27,7 @@ urlpatterns = [
     path("<int:player_id>/", PlayerDetailView.as_view(), name="detail"),
     path("<int:player_id>/ban/", PlayerBanView.as_view(), name="ban"),
     path("<int:player_id>/unban/", PlayerUnbanView.as_view(), name="unban"),
-    # 预留入口：契约已定，数据源待接入（见 views.py 的两个子类）。
-    path("<int:player_id>/games/", PlayerGamesView.as_view(), name="games"),
+    # 预留入口：契约已定，数据源待接入（见 views.py 的 PlayerRechargesView）。
+    # 对局记录已经落地到独立应用 `/api/games/players/<id>/`，不再在这里占位。
     path("<int:player_id>/recharges/", PlayerRechargesView.as_view(), name="recharges"),
 ]

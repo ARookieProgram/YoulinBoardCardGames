@@ -304,7 +304,8 @@ npm run check:protocol    # 事件名双向比对（Node 侧与 client 侧）
   因为 import `game_server.app` 会去绑端口；这一半永远会跑；
 * 有可用解释器时（优先 `.venv/bin/python`）再跑本目录 `tests/` 里的 stdlib unittest；
   缺依赖时报 **skipped 并说明原因**，绝不装作通过——与 `types` 缺 `tsc` 时同一套约定。
-  当前 103 项（含 `tests/test_bancheck.py` 的封禁校验与 `test_protocol.py` 的签名向量）。
+  当前 115 项（含 `tests/test_bancheck.py` 的封禁校验、`test_protocol.py` 的签名向量，
+  以及 `tests/test_db_layer.py` 的访问层导出面与两个战绩回放查询）。
 
 所以提交前的完整判据是 `npm run verify` **全绿**（当前 `types` 有一处**既有**失败：
 `client/creator.d.ts` 第 20915 行缺一个逗号，与本目录无关）。
@@ -314,6 +315,15 @@ npm run check:protocol    # 事件名双向比对（Node 侧与 client 侧）
 `utils/db.py` 是**唯一**允许拼 SQL 的地方（与 Node 版同一条约定）。
 业务代码只调用它的导出，不要自己 `import aiomysql` 或拼 SQL。
 行结构契约在 `shared/db_rows.py`。
+
+**`__all__` 里的每个名字都必须真的有实现**：调用方（大厅服 / 游戏服）只按名字 `await`，
+少一个函数就是在运行时抛 `AttributeError`（aiohttp 变成 500），静态检查与 `ast.parse` 都拦不住。
+`tests/test_db_layer.py` 用一条通用断言钉住这件事——它的第一个实例就是
+`get_games_of_room` / `get_detail_of_game`（客户端"战绩 → 回放"的两个查询）：
+这两个函数在移植时只写进了 `__all__`、没写实现，导致 Python 版大厅服的
+`/get_games_of_room` 与 `/get_detail_of_game` 一直 500（Node 版正常），后来补上了。
+**新增/重命名 db 函数时，两个查询的 SQL 口径要与 Node 版一致**，
+并在同一个测试文件里补上对应的断言。
 
 表结构变更要同时改 `repo:server/sql/db_babykylin.sql`、`utils/db.py` 的语句与 `shared/db_rows.py`。
 

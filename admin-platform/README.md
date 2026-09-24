@@ -11,25 +11,33 @@
 
 ## 1. 本期范围
 
-已交付**登录闭环 + 后台骨架 + 玩家管理 + 房间管理**：
+已交付**登录闭环 + 后台骨架 + 玩家管理 + 房间管理 + 对局记录**：
 
 * 登录页（表单校验、错误提示、回车提交、后端可达性探测）；
 * 登录态管理（Pinia store + localStorage 持久化）；
 * 请求层（axios 拦截器：拆响应外壳 + **401 自动续期并重放原请求**）；
 * 路由守卫（未登录跳登录页、刷新页面恢复登录态、角色不足挡回控制台）；
-* 后台布局（侧边菜单 + 顶栏 + 退出登录）；
-* **玩家管理**：查询 / 房卡展示 / 封禁解封，并预留"对局记录""充值记录"两个查询入口；
+* 后台布局（侧边菜单 + 顶栏 + 退出登录 + **修改自己的密码**）；
+* **玩家管理**：查询 / 房卡展示 / 封禁解封；详情抽屉的「对局记录」Tab 展示该玩家
+  最近 10 场的房间战绩（可跳转到对局记录页），「充值记录」Tab 仍是预留入口；
 * **房间管理**：只读监控存活房间（列表 / 概览 / 详情：配置、四个座位、所在游戏服），
   并预留"强制解散"这个运维入口（后端恒返回 `reserved: true`，见
   `server-python/platform_server/README.md` §6.6）；
-* 控制台与剩余占位页（对局记录 / 管理员账号）。
+* **对局记录**：对局列表（关键字 / 玩法 / 来源 / 日期区间 / 排序 / 分页）+ 概览 +
+  一个房间的全部对局 + **单局出牌记录**（全局时间线 / 分每个玩家的出牌顺序 /
+  开局手牌与牌墙）+ 某个玩家的最近战绩；
+* 控制台。
 
 后续业务页面接进 `src/router/routes.ts` 的 `children` 即可，
 菜单会**自动**多出一项（菜单由路由表派生，见 `src/utils/menu.ts`）。
 
-> 两个已接入的页面都**只读**玩家数据：数据来自后端对玩家库 `db_scmj`
-> 的只读数据源（`t_users` / `t_rooms`），前端不关心它从哪张表来，只认
-> `src/api/` 里的契约类型。
+> 三个已接入的页面都**只读**玩家数据：数据来自后端对玩家库 `db_scmj`
+> 的只读数据源（`t_users` / `t_rooms` / `t_games` / `t_games_archive`），
+> 前端不关心它从哪张表来，只认 `src/api/` 里的契约类型。
+>
+> **牌面与动作名的中文口径由后端给出**（`tile_label` / `action_label` /
+> `source_label` / `identity_note`），前端只做排版与配色——
+> 玩法口径只有一处定义（`server-python/platform_server/apps/games/decoding.py`）。
 
 ---
 
@@ -91,8 +99,9 @@ src/
 │   ├─ errors.ts           ApiError（业务失败）/ NetworkError（网络层失败）
 │   ├─ client.ts           axios 实例 + 拆外壳 + 401 自动续期
 │   ├─ auth.ts             登录 / 刷新 / me / 退出 / 健康检查
-│   ├─ players.ts          玩家管理接口（列表 / 详情 / 封禁解封 / 两个预留入口）
-│   └─ rooms.ts            房间管理接口（列表 / 概览 / 详情 / 预留的强制解散）
+│   ├─ players.ts          玩家管理接口（列表 / 详情 / 封禁解封 / 预留的充值记录）
+│   ├─ rooms.ts            房间管理接口（列表 / 概览 / 详情 / 预留的强制解散）
+│   └─ games.ts            对局记录接口（列表 / 概览 / 房间对局 / 单局出牌记录 / 玩家战绩）
 ├─ stores/auth.ts          登录态（当前管理员、登录、登出、拉取身份）
 ├─ router/
 │   ├─ routes.ts           路由表（菜单也从这里派生）
@@ -100,10 +109,14 @@ src/
 │   └─ index.ts            路由器 + 登录守卫 + 令牌失效监听
 ├─ layouts/AdminLayout.vue 后台骨架（侧边菜单 / 顶栏 / 内容区）
 ├─ views/                  LoginView / DashboardView / PlayerListView / RoomListView
-│                          / PlaceholderView / NotFoundView
+│                          / GameListView / NotFoundView
 ├─ components/             PlayerDetailDrawer.vue / RoomDetailDrawer.vue
+│                          GameDetailDrawer.vue（单局出牌记录）
+│                          RoomGamesDrawer.vue（一个房间的全部对局）
+│                          PlayerGamesTable.vue（玩家战绩，玩家抽屉与对局页共用）
 ├─ utils/                  menu.ts（由路由表生成菜单）、format.ts、
-│                          room.ts（房间的展示口径：玩法/自摸/点杠花的中文名等）
+│                          room.ts（房间的展示口径：玩法/自摸/点杠花的中文名等）、
+│                          game.ts（对局的展示口径：来源/身份标签、牌面配色等）
 └─ assets/main.css         全局样式
 ```
 
@@ -119,6 +132,7 @@ import type { AdminUser } from '@/api/types'
 
 const me = await get<AdminUser>('auth/me/')          // 直接是 AdminUser
 ```
+
 
 失败时抛的异常：
 

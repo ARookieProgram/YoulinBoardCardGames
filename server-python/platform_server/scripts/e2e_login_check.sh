@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# 管理平台端到端验收脚本：登录闭环 + 玩家管理 + 房间管理（本机手工跑，不进门禁）。
+# 管理平台端到端验收脚本：登录闭环 + 玩家管理 + 房间管理 + 对局记录（本机手工跑，不进门禁）。
 #
 # 前置：
 #   1) platform_server 已在 127.0.0.1:8000 运行，且已 seed_admin；
 #   2) 玩家库（`DATABASES["player"]`）可连——第 9 节的封禁 / 解封断言需要库里有
-#      **未被封禁**的玩家，第 11 节的房间断言需要 `t_rooms` 存在；没有数据时
-#      这两小段会自动跳过并打印提示，不算失败。
-#
+#      **未被封禁**的玩家，第 11 节的房间断言需要 `t_rooms` 存在，第 12 节的对局断言
+#      需要 `t_games` / `t_games_archive` 存在；没有数据时这三小段会自动跳过并打印提示，
+#      不算失败（SQLite 离线库可以先跑 `manage.py init_player_dev --reset` 造样例）。
+##
 # 用法：./scripts/e2e_login_check.sh [base_url]
 set -uo pipefail
 
@@ -128,12 +129,13 @@ check "玩家不存在 HTTP 404" "404" "$(printf '%s' "$missing" | tail -1)"
 check "玩家不存在 code=12001" "12001" "$(jq_get "$(printf '%s' "$missing" | sed '$d')" "['code']")"
 
 # 9.4 预留入口：契约已定，数据源待接入（不访问玩家库，任意 ID 都有答复）
-games=$(curl -s "$BASE/api/players/999999/games/" -H "Authorization: Bearer $access2")
-check "对局记录入口已预留" "True" "$(jq_get "$games" "['data']['reserved']")"
-check "对局记录入口分页形状不变" "0" "$(jq_get "$games" "['data']['total']")"
-
+#     对局记录已经**不再是预留入口**：它落地成了 `/api/games/`，见第 12 节。
 recharges=$(curl -s "$BASE/api/players/999999/recharges/" -H "Authorization: Bearer $access2")
 check "充值记录入口已预留" "True" "$(jq_get "$recharges" "['data']['reserved']")"
+
+players_games_gone=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/players/999999/games/" \
+  -H "Authorization: Bearer $access2")
+check "玩家对局入口已搬到 /api/games/（旧路径 404）" "404" "$players_games_gone"
 
 # 9.5 封禁 / 解封：需要玩家库里有**未被封禁**的玩家
 normal=$(curl -s "$BASE/api/players/?ban_state=normal&page_size=1" -H "Authorization: Bearer $access2")
@@ -278,6 +280,74 @@ else
 
     room_after=$(curl -s "$BASE/api/rooms/$room_id/" -H "Authorization: Bearer $access2")
     check "解散入口不改动房间（详情仍可查）" "0" "$(jq_get "$room_after" "['code']")"
+  fi
+fi
+
+echo "== 12. 对局记录（只读：t_games / t_games_archive）=="
+
+# 12.1 认证与参数校验
+nologin_game=$(curl -s -w '\n%{http_code}' "$BASE/api/games/")
+check "无令牌访问对局列表返回 401" "401" "$(printf '%s' "$nologin_game" | tail -1)"
+check "无令牌 code=10002" "10002" "$(jq_get "$(printf '%s' "$nologin_game" | sed '$d')" "['code']")"
+
+game_badparam=$(curl -s -w '\n%{http_code}' "$BASE/api/games/?page_size=0" -H "Authorization: Bearer $access2")
+check "对局列表非法分页 HTTP 400" "400" "$(printf '%s' "$game_badparam" | tail -1)"
+check "对局列表非法分页 code=10001" "10001" "$(jq_get "$(printf '%s' "$game_badparam" | sed '$d')" "['code']")"
+
+game_missing=$(curl -s -w '\n%{http_code}' "$BASE/api/games/rooms/999999/0/" -H "Authorization: Bearer $access2")
+check "对局不存在 HTTP 404" "404" "$(printf '%s' "$game_missing" | tail -1)"
+check "对局不存在 code=14001" "14001" "$(jq_get "$(printf '%s' "$game_missing" | sed '$d')" "['code']")"
+
+player_missing=$(curl -s -w '\n%{http_code}' "$BASE/api/games/players/999999/" -H "Authorization: Bearer $access2")
+check "玩家战绩里玩家不存在 code=12001" "12001" "$(jq_get "$(printf '%s' "$player_missing" | sed '$d')" "['code']")"
+
+# 12.2 概览与列表（玩家库里可能一局都没有，所以分开判断）
+game_overview=$(curl -s "$BASE/api/games/overview/" -H "Authorization: Bearer $access2")
+game_overview_code=$(jq_get "$game_overview" "['code']")
+if [ "$game_overview_code" = "12004" ]; then
+  printf '  \033[33m!\033[0m 玩家库没有 t_games / 连不上，跳过对局概览与列表断言（先跑 init_player_dev 或导入对局数据）\n'
+else
+  check "对局概览 code=0" "0" "$game_overview_code"
+  check "概览带总局数字段" "yes" \
+    "$(printf '%s' "$game_overview" | grep -q '"total_games"' && echo yes || echo no)"
+
+  game_list=$(curl -s "$BASE/api/games/?page_size=5" -H "Authorization: Bearer $access2")
+  check "对局列表 code=0" "0" "$(jq_get "$game_list" "['code']")"
+  check "对局列表含分页键 items" "yes" "$(printf '%s' "$game_list" | grep -q '"items"' && echo yes || echo no)"
+  check "对局列表含动作统计" "yes" \
+    "$(printf '%s' "$game_list" | grep -q '"action_summary"' && echo yes || echo no)"
+
+  room_uuid=$(printf '%s' "$game_list" | python3 -c \
+    "import json,sys;d=json.load(sys.stdin);items=d['data']['items'];print(items[0]['room_uuid'] if items else '')" \
+    2>/dev/null || echo "")
+
+  if [ -z "$room_uuid" ]; then
+    printf '  \033[33m!\033[0m 玩家库当前没有对局记录，跳过房间对局与出牌记录断言\n'
+  else
+    room_games=$(curl -s "$BASE/api/games/rooms/$room_uuid/" -H "Authorization: Bearer $access2")
+    check "房间对局 code=0" "0" "$(jq_get "$room_games" "['code']")"
+    check "房间对局回带同一 uuid" "$room_uuid" "$(jq_get "$room_games" "['data']['room_uuid']")"
+    check "房间对局带四个座位" "4" \
+      "$(printf '%s' "$room_games" | python3 -c \
+        "import json,sys;print(len(json.load(sys.stdin)['data']['seats']))" 2>/dev/null || echo "")"
+
+    game_detail=$(curl -s "$BASE/api/games/rooms/$room_uuid/0/" -H "Authorization: Bearer $access2")
+    check "单局详情 code=0" "0" "$(jq_get "$game_detail" "['code']")"
+    check "详情含出牌时间线" "yes" \
+      "$(printf '%s' "$game_detail" | grep -q '"timeline"' && echo yes || echo no)"
+    check "详情含分座位出牌记录" "yes" \
+      "$(printf '%s' "$game_detail" | grep -q '"seat_actions"' && echo yes || echo no)"
+    check "详情含开局手牌" "yes" \
+      "$(printf '%s' "$game_detail" | grep -q '"initial_hands"' && echo yes || echo no)"
+
+    # 12.3 按房间号搜对局（uuid = 13 位毫秒 + 6 位房间号，后端据此反推）
+    game_room_id=$(jq_get "$game_detail" "['data']['room_id']")
+    if [ -n "$game_room_id" ]; then
+      by_room_id=$(curl -s "$BASE/api/games/?keyword=$game_room_id" -H "Authorization: Bearer $access2")
+      check "按房间号搜到对局" "True" \
+        "$(printf '%s' "$by_room_id" | python3 -c \
+          "import json,sys;print(json.load(sys.stdin)['data']['total'] > 0)" 2>/dev/null || echo "")"
+    fi
   fi
 fi
 

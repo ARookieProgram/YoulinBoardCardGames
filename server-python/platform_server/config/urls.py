@@ -5,6 +5,7 @@
 | `/api/auth/` | 管理平台登录（本工程） |
 | `/api/players/` | 玩家管理（只读玩家库 + 本平台的封禁记录） |
 | `/api/rooms/` | 房间管理（只读玩家库 `t_rooms`，无本平台表） |
+| `/api/games/` | 对局记录（只读玩家库 `t_games` / `t_games_archive`，无本平台表） |
 | `/api/internal/` | **内部接口**：给游戏服进程调用，走共享密钥而非 JWT |
 | `/api/health/` | 健康检查（给负载均衡/运维用，不需要登录） |
 | `/admin/` | Django 自带的数据库管理站点（**不是**本平台的前端） |
@@ -52,6 +53,7 @@ urlpatterns = [
     path("api/auth/", include("apps.accounts.urls")),
     path("api/players/", include("apps.players.urls")),
     path("api/rooms/", include("apps.rooms.urls")),
+    path("api/games/", include("apps.games.urls")),
     # 内部接口：给游戏服调用，密钥认证见 apps/players/internal.py。
     path("api/internal/players/", include("apps.players.urls_internal")),
     path("api/health/", health, name="health"),

@@ -78,6 +78,8 @@ INSTALLED_APPS = [
     "apps.players",
     # 房间管理没有模型（房间数据在玩家库里，只读），注册进来是为了统一目录约定。
     "apps.rooms",
+    # 对局记录同样没有模型（t_games / t_games_archive 在玩家库里，只读）。
+    "apps.games",
 ]
 
 MIDDLEWARE = [
