@@ -4,8 +4,8 @@
  *
  * 页面能力：
  *  1. **对局列表**——按关键字（房间 uuid / 房间号 / 玩家ID / 玩家昵称）、玩法、
- *     来源（进行中 / 已结束）、开局日期区间过滤，可排序、分页；
- *  2. **概览**——总局数、已结束、进行中、最近 24 小时的对局与房间数；
+ *     开局日期区间过滤，可排序、分页；
+ *  2. **概览**——归档总局数、覆盖房间数、最近 24 小时的对局与房间数；
  *  3. **出牌记录**——点某一局的"出牌记录"，看**这一局每个玩家打了什么**：
  *     全局时间线（第几步、谁、什么动作、哪张牌、这张牌被谁碰/杠/胡）+
  *     分座位的出牌顺序 + 开局手牌与牌墙消耗；
@@ -13,9 +13,10 @@
  *  5. **玩家维度**——玩家详情抽屉的「对局记录」会跳到本页并带上 `?player_id=`，
  *     这里展示该玩家最近 10 场的房间战绩。
  *
- * 数据来自玩家库 `db_scmj` 的 `t_games` / `t_games_archive`（只读）。三条口径：
+ * 数据来自玩家库 `db_scmj` 的 `t_games_archive`（**归档表**，只读）。三条口径：
  *
- *  * **每结束一局才写一行**：房间刚建、第一局还在打时查不到（`14001`）；
+ *  * **只读归档表**：房间结束（打完 / 被解散）时游戏服才归档，所以看到的都是终局；
+ *    房间还在打的对局查不到（`14001`）；
  *  * **对局表里没有玩家**：身份靠存活房间表或 `t_users.history` 反查，
  *    查不到时显示成 `座位N`（`identity_source === 'unknown'`）；
  *  * **对局表里也没有房间号**：后台从 uuid 反推（uuid = 13 位毫秒 + 6 位房间号），
@@ -31,21 +32,14 @@ import { ElMessage } from 'element-plus'
 import { getGamesOverview, listGames } from '@/api/games'
 import { ApiError } from '@/api/errors'
 import { ErrorCode } from '@/api/types'
-import type {
-  GameSource,
-  GameSummary,
-  GamesOverview,
-  PageResult,
-} from '@/api/types'
+import type { GameSummary, GamesOverview, PageResult } from '@/api/types'
 import {
   GAME_ORDERING_OPTIONS,
-  GAME_SOURCE_OPTIONS,
   GAME_TYPE_OPTIONS,
   actionSummaryText,
   identityTagType,
   roundText,
   seatDisplayName,
-  sourceTagType,
 } from '@/utils/game'
 import GameDetailDrawer from '@/components/GameDetailDrawer.vue'
 import PlayerGamesTable from '@/components/PlayerGamesTable.vue'
@@ -58,7 +52,6 @@ const router = useRouter()
 const query = reactive({
   keyword: '',
   game_type: '',
-  source: 'all' as GameSource | 'all',
   ordering: '-create_time',
   /** `[起始, 结束]`，`null` 表示不限（Element Plus 的 daterange 形状，清空时会置 `null`）。 */
   dateRange: null as string[] | null,
@@ -94,26 +87,24 @@ const detailGameIndex = ref<number | null>(null)
 /** 概览卡片。 */
 const overviewCards = computed(() => [
   {
-    label: '对局总数',
+    label: '归档对局',
     value: overview.value ? String(overview.value.total_games) : '—',
-    tip: 't_games + t_games_archive（每结束一局一行）',
+    tip: 't_games_archive（房间打完 / 解散时归档，只增不减）',
   },
   {
-    label: '已结束',
-    value: overview.value ? String(overview.value.archived_games) : '—',
-    tip: 't_games_archive：房间已销毁，数据长期保留',
+    label: '覆盖房间',
+    value: overview.value ? String(overview.value.total_rooms) : '—',
+    tip: '归档记录里出现过的房间数（按 uuid 去重）',
   },
   {
-    label: '进行中',
-    value: overview.value ? String(overview.value.live_games) : '—',
-    tip: 't_games：房间还在玩家手里',
-  },
-  {
-    label: '最近 24 小时',
-    value: overview.value
-      ? `${overview.value.games_last_24h} 局 / ${overview.value.rooms_last_24h} 房间`
-      : '—',
+    label: '最近 24 小时对局',
+    value: overview.value ? String(overview.value.games_last_24h) : '—',
     tip: '按本局开始时间统计',
+  },
+  {
+    label: '最近 24 小时房间',
+    value: overview.value ? String(overview.value.rooms_last_24h) : '—',
+    tip: '最近 24 小时有归档对局的房间数',
   },
 ])
 
@@ -137,7 +128,6 @@ async function loadGames(): Promise<void> {
     result.value = await listGames({
       keyword: query.keyword.trim(),
       game_type: query.game_type,
-      source: query.source,
       date_from: query.dateRange?.[0] ?? '',
       date_to: query.dateRange?.[1] ?? '',
       ordering: query.ordering,
@@ -173,7 +163,6 @@ function handleSearch(): void {
 function handleReset(): void {
   query.keyword = ''
   query.game_type = ''
-  query.source = 'all'
   query.ordering = '-create_time'
   query.dateRange = null
   page.value = 1
@@ -276,8 +265,8 @@ onMounted(async () => {
       type="info"
       show-icon
       :closable="false"
-      title="只读的历史对局"
-      description="数据来自玩家库 t_games / t_games_archive：游戏服每结束一局写一行，房间打完或解散时整批归档。对局表里只有座位号，没有玩家与房间号——玩家身份靠存活房间表或玩家战绩快照反查，房间号由 uuid 反推。"
+      title="只读的归档对局"
+      description="数据来自玩家库 t_games_archive（归档表）：房间打完 / 被解散时，游戏服才把整批对局搬进来，所以这里每一局都是终局。房间还在打的对局查不到。对局表里只有座位号，没有玩家与房间号——玩家身份靠存活房间表或玩家战绩快照反查，房间号由 uuid 反推。"
     />
 
     <!-- 玩家维度（从玩家详情跳过来时） -->
@@ -314,16 +303,6 @@ onMounted(async () => {
             <el-option label="全部" value="" />
             <el-option
               v-for="item in GAME_TYPE_OPTIONS"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="来源">
-          <el-select v-model="query.source" style="width: 130px">
-            <el-option
-              v-for="item in GAME_SOURCE_OPTIONS"
               :key="item.value"
               :label="item.label"
               :value="item.value"
@@ -375,13 +354,6 @@ onMounted(async () => {
             <el-tag type="info" effect="plain" size="small">{{ row.type_label || row.type || '—' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="来源" width="90">
-          <template #default="{ row }: { row: GameSummary }">
-            <el-tag :type="sourceTagType(row.source)" size="small" effect="light">
-              {{ row.source_label }}
-            </el-tag>
-          </template>
-        </el-table-column>
         <el-table-column label="玩家身份" width="110">
           <template #default="{ row }: { row: GameSummary }">
             <el-tag :type="identityTagType(row.identity_source)" size="small" effect="plain">
@@ -417,7 +389,7 @@ onMounted(async () => {
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty description="没有符合条件的对局（每结束一局才会写库；换个条件试试）" />
+          <el-empty description="没有符合条件的归档对局（房间打完 / 被解散后才会归档；换个条件试试）" />
         </template>
       </el-table>
 

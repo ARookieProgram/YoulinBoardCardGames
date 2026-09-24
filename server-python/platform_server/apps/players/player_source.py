@@ -48,6 +48,9 @@
 * 两张表结构完全相同，`room_uuid` + `game_index` 是联合主键；游戏服**每开一局就写一行**
   `t_games`，房间打完 / 被解散时 `archive_games()` 把它整批搬进 `t_games_archive` 并删掉在局行。
   所以 `t_games` ≈ "还在房间里的对局"，`t_games_archive` ≈ "已经结束房间的对局"（长期保留）；
+* **对局记录只读归档表 `t_games_archive`**，不读在局表 `t_games`：后台展示的是"打完的历史"，
+  只有归档过的对局才算终局（房间已经不存在、分数不会再变）。房间还没结束时，
+  它那几局在后台是**查不到**的（`14001`），这是刻意的；
 * `game_index` 从 **0** 开始（`gamemgr.begin()` 里 `gameIndex = room_info.numOfGames`，
   之后 `numOfGames += 1`），所以展示时统一 `round = game_index + 1`；
 * `base_info` 是本局的开局快照：`{type, button, index, mahjongs, game_seats}`
@@ -619,51 +622,38 @@ def search_rooms(
 
 
 # ---------------------------------------------------------------------------
-# 对局记录（t_games / t_games_archive）
+# 对局记录（**只读归档表 t_games_archive**）
 # ---------------------------------------------------------------------------
 #
 # 对局记录模块（`apps/games/`）读的就是下面这一段的函数。与 `t_users` / `t_rooms` 一样：
 # 参数全部走占位符、排序键走白名单、只发 SELECT。
 #
-# 两张表的取舍写在模块文档里；这里补充三件**只有读库的人才知道**的事：
+# **本段只查 `t_games_archive`（归档表），刻意不查 `t_games`（在局表）**：
+# "对局记录"是**打完的历史**——游戏服在房间结束（打完 / 被解散）时调用
+# `archive_games()` 把整批在局行搬进归档表并删掉原行，只有归档过的对局才算数。
+# 这样运营看到的每一局都是**终局**（房间已经不存在、分数不会再变），
+# 不会出现"点开一看是别人正在打的牌局"。
+# 在局表仍由 `init_player_dev` 造样例（见那里的注释），用来验证"不被读出来"。
 #
-# 1. 房间号（`t_rooms.id`）**不在** `t_games` 里，所以"按房间号查对局"必须先解析成
-#    uuid：存活房间查 `t_rooms`，已结束房间只能扫 `t_users.history`（见 `resolve_room_uuids`）；
+# 三件**只有读这两张表的人才知道**的事：
+#
+# 1. 房间号（`t_rooms.id`）**不在**对局表里，所以"按房间号查对局"必须先解析成
+#    uuid：存活房间查 `t_rooms`，已结束房间扫 `t_users.history`
+#    （见 `resolve_room_uuids` / `resolve_room_ref`）；
 # 2. 同理，玩家身份也只能靠 `t_users.history` 反查，这一扫是**全表扫 4096 字节的大列**，
 #    所以所有扫描都带 `LIMIT`（`HISTORY_SCAN_LIMIT`），并且只在必要时才做；
-# 3. 两份表结构一样，所以列表用 `UNION ALL` 合并、再统一排序分页；`game_source` 列标出
-#    这一行是从哪张表来的（前端据此显示"进行中 / 已结束"）。
+# 3. 归档行里**没有**"这一局属于哪个还在跑的房间"这种信息，`game_source` 之类的列
+#    也就没有意义：来源恒为"已结束"。
 
-#: 在局对局表（房间还没销毁）。
+#: 在局对局表（房间还没销毁）。**本模块刻意不读它**，常量留着是为了说明"哪张表不读"，
+#: 以及给 `init_player_dev` 造"不该被查出来"的样例数据。
 GAME_LIVE_TABLE: Final[str] = "t_games"
 
-#: 归档对局表（房间已销毁 / 已打完，长期保留）。
+#: 归档对局表（房间已销毁 / 已打完，长期保留）——**对局记录唯一的数据来源**。
 GAME_ARCHIVE_TABLE: Final[str] = "t_games_archive"
 
-#: 两张相同结构的表统一取这些列。`base_info` / `action_records` / `result` 都是 JSON 文本。
+#: 对局表统一取这些列。`base_info` / `action_records` / `result` 都是 JSON 文本。
 GAME_COLUMNS: Final[str] = "room_uuid, game_index, base_info, create_time, action_records, result"
-
-#: 对局来源过滤。
-GAME_SOURCE_ALL: Final[str] = "all"
-GAME_SOURCE_ARCHIVE: Final[str] = "archive"
-GAME_SOURCE_LIVE: Final[str] = "live"
-GAME_SOURCE_CHOICES: Final[tuple[tuple[str, str], ...]] = (
-    (GAME_SOURCE_ALL, "全部"),
-    (GAME_SOURCE_ARCHIVE, "已结束"),
-    (GAME_SOURCE_LIVE, "进行中"),
-)
-
-#: 来源标识 → 大厅里的说法（前端直接用，避免两边各写一套）。
-GAME_SOURCE_LABELS: Final[dict[str, str]] = {
-    GAME_SOURCE_ARCHIVE: "已结束",
-    GAME_SOURCE_LIVE: "进行中",
-}
-
-#: `(表名, 来源标识)`，顺序固定：先归档后在进行，`UNION ALL` 的结果顺序因此是稳定的。
-GAME_TABLE_SOURCES: Final[tuple[tuple[str, str], ...]] = (
-    (GAME_ARCHIVE_TABLE, GAME_SOURCE_ARCHIVE),
-    (GAME_LIVE_TABLE, GAME_SOURCE_LIVE),
-)
 
 #: 对局里的玩家身份是从哪儿查到的。
 GAME_IDENTITY_ROOMS: Final[str] = "rooms"
@@ -671,13 +661,17 @@ GAME_IDENTITY_HISTORY: Final[str] = "history"
 GAME_IDENTITY_UNKNOWN: Final[str] = "unknown"
 
 #: 身份来源 → 给运营看的一句话（前端直接展示，不必自己编）。
+#:
+#: `rooms` 这一档在正常流程下**几乎不会出现**：游戏服是先 `roommgr.destroy()`
+#: （删 `t_rooms` 行）再 `archive_games()`，所以归档对局的身份通常走 `history`。
+#: 保留这一档是因为它便宜（一次索引查找）且能兜住"房间行还在但已经归档"的历史数据。
 GAME_IDENTITY_LABELS: Final[dict[str, str]] = {
-    GAME_IDENTITY_ROOMS: "来自存活房间表 t_rooms（房间还没销毁）",
+    GAME_IDENTITY_ROOMS: "来自存活房间表 t_rooms（房间行还在）",
     GAME_IDENTITY_HISTORY: "来自玩家战绩 t_users.history（房间已销毁，按 uuid 反查）",
     GAME_IDENTITY_UNKNOWN: "无法确认玩家身份（房间已销毁且没有战绩快照）",
 }
 
-#: 允许的排序键 → `UNION ALL` 之后的 `ORDER BY` 片段。**白名单**，不做字符串拼接；
+#: 允许的排序键 → `ORDER BY` 片段。**白名单**，不做字符串拼接；
 #: 同值时用 `game_index` / `room_uuid` 兜底，否则同一秒结束的多个房间翻页会重复或漏行。
 GAME_ORDERING_CHOICES: Final[dict[str, str]] = {
     "-create_time": "create_time DESC, game_index DESC, room_uuid DESC",
@@ -686,7 +680,7 @@ GAME_ORDERING_CHOICES: Final[dict[str, str]] = {
     "game_index": "game_index ASC, create_time ASC, room_uuid ASC",
 }
 
-#: 默认排序：最新结束 / 最新开局的排在前面。
+#: 默认排序：最新开局的排在前面。
 GAME_DEFAULT_ORDERING: Final[str] = "-create_time"
 
 #: 房间号固定 6 位（游戏服 `roommgr.generate_room_id()` 循环 6 次取随机数字）。
@@ -734,10 +728,11 @@ def room_id_from_uuid(uuid: Any) -> str:
 
 
 def _uuids_by_room_id(room_id: str, *, limit: int = GAME_ROOM_ID_LOOKUP_LIMIT) -> list[str]:
-    """按房间号反查 uuid（对局表里只有 uuid，所以按**后缀**匹配）。
+    """按房间号反查 uuid（归档表里只有 uuid，所以按**后缀**匹配）。
 
     `room_uuid LIKE '%<6 位房间号>'` 用不上索引，是一次全表扫；但这是"只有房间号、
     房间又已经销毁"时唯一的查法，而且结果按"最近还有对局"排序，运营要的多半就是最近那场。
+    只查归档表：在局表里的房间号对应的正是"还没归档、后台不该显示"的对局。
 
     :param room_id: 6 位房间号。
     :return: uuid 列表（最近有对局的在前）；房间号形态不对时是空列表。
@@ -745,18 +740,17 @@ def _uuids_by_room_id(room_id: str, *, limit: int = GAME_ROOM_ID_LOOKUP_LIMIT) -
     text = (room_id or "").strip()
     if not text.isdigit() or len(text) != GAME_ROOM_ID_LENGTH:
         return []
+    rows = _run(
+        f"SELECT room_uuid, MAX(create_time) AS last_time FROM {GAME_ARCHIVE_TABLE}"
+        f" WHERE room_uuid LIKE %s GROUP BY room_uuid LIMIT {int(limit)}",
+        [f"%{text}"],
+    )
     found: list[tuple[int, str]] = []
-    for table, _source in GAME_TABLE_SOURCES:
-        rows = _run(
-            f"SELECT room_uuid, MAX(create_time) AS last_time FROM {table}"
-            f" WHERE room_uuid LIKE %s GROUP BY room_uuid LIMIT {int(limit)}",
-            [f"%{text}"],
-        )
-        for row in rows:
-            uuid = str(row.get("room_uuid") or "").strip()
-            # SQL 的 `LIKE '%xxxxxx'` 只保证后缀；这里再确认一眼长度与后缀，避免脏数据误伤。
-            if uuid.endswith(text) and room_id_from_uuid(uuid) == text:
-                found.append((int(row.get("last_time") or 0), uuid))
+    for row in rows:
+        uuid = str(row.get("room_uuid") or "").strip()
+        # SQL 的 `LIKE '%xxxxxx'` 只保证后缀；这里再确认一眼长度与后缀，避免脏数据误伤。
+        if uuid.endswith(text) and room_id_from_uuid(uuid) == text:
+            found.append((int(row.get("last_time") or 0), uuid))
     found.sort(key=lambda item: item[0], reverse=True)
     return list(dict.fromkeys(uuid for _time, uuid in found))
 
@@ -805,7 +799,6 @@ def _normalize_game(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "room_uuid": str(row.get("room_uuid") or ""),
         "game_index": int(row.get("game_index") or 0),
-        "source": str(row.get("game_source") or GAME_SOURCE_ARCHIVE),
         "create_time": int(row.get("create_time") or 0),
         "created_at": format_unix_seconds(row.get("create_time")),
         "type": str(base_info.get("type") or ""),
@@ -1162,64 +1155,26 @@ def _game_where_clause(
     return " WHERE " + " AND ".join(parts), params
 
 
-def _game_union(
-    *,
-    uuids: list[str] | None,
-    game_type: str,
-    created_from: int | None,
-    created_to: int | None,
-    columns: str,
-    tail: str,
-) -> tuple[str, list[Any]]:
-    """拼"两张表 `UNION ALL` + 排序/分页"的 SQL。
-
-    :param columns: `SELECT` 的列（两张表列名一致）。
-    :param tail: `ORDER BY ... LIMIT ...` 之类的尾巴（调用方拼好的白名单片段）。
-    :return: `(sql, params)`。
-    """
-    selects: list[str] = []
-    params: list[Any] = []
-    for table, source in GAME_TABLE_SOURCES:
-        where, where_params = _game_where_clause(
-            uuids=uuids,
-            game_type=game_type,
-            created_from=created_from,
-            created_to=created_to,
-        )
-        selects.append(f"SELECT '{source}' AS game_source, {columns} FROM {table}{where}")
-        params.extend(where_params)
-    return " UNION ALL ".join(selects) + tail, params
-
-
 def game_overview(*, recent_seconds: int = 24 * 3600) -> dict[str, int]:
-    """对局概览：归档局数 / 在局局数 / 最近一段时间的新局数与房间数。
+    """对局概览：归档局数 / 覆盖房间数 / 最近一段时间的新局数与房间数。
+
+    只统计归档表——"对局记录"看的就是打完的历史（见本节开头的说明）。
 
     :param recent_seconds: "最近"的窗口，默认 24 小时（`create_time` 是秒）。
     """
     threshold = int(time.time()) - max(int(recent_seconds), 0)
-    sql, params = _game_union(
-        uuids=None,
-        game_type="",
-        created_from=None,
-        created_to=None,
-        columns="room_uuid, create_time",
-        tail="",
-    )
     rows = _run(
-        "SELECT"
-        " SUM(CASE WHEN game_source = %s THEN 1 ELSE 0 END) AS archived_games,"
-        " SUM(CASE WHEN game_source = %s THEN 1 ELSE 0 END) AS live_games,"
+        "SELECT COUNT(*) AS total_games,"
+        " COUNT(DISTINCT room_uuid) AS total_rooms,"
         " SUM(CASE WHEN create_time >= %s THEN 1 ELSE 0 END) AS games_last_24h,"
         " COUNT(DISTINCT CASE WHEN create_time >= %s THEN room_uuid END) AS rooms_last_24h"
-        f" FROM ({sql}) AS merged_games",
-        [GAME_SOURCE_ARCHIVE, GAME_SOURCE_LIVE, threshold, threshold, *params],
+        f" FROM {GAME_ARCHIVE_TABLE}",
+        [threshold, threshold],
     )
     row = rows[0] if rows else {}
-    total = int(row.get("archived_games") or 0) + int(row.get("live_games") or 0)
     return {
-        "total_games": total,
-        "archived_games": int(row.get("archived_games") or 0),
-        "live_games": int(row.get("live_games") or 0),
+        "total_games": int(row.get("total_games") or 0),
+        "total_rooms": int(row.get("total_rooms") or 0),
         "games_last_24h": int(row.get("games_last_24h") or 0),
         "rooms_last_24h": int(row.get("rooms_last_24h") or 0),
     }
@@ -1229,18 +1184,16 @@ def search_games(
     *,
     keyword: str = "",
     game_type: str = "",
-    source: str = GAME_SOURCE_ALL,
     created_from: int | None = None,
     created_to: int | None = None,
     ordering: str = GAME_DEFAULT_ORDERING,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[dict[str, Any]], int]:
-    """按条件分页查询对局记录（两张表一起查）。
+    """按条件分页查询**归档**对局记录。
 
     :param keyword: 房间 uuid / 房间号 / 玩家 ID / 玩家昵称，空串表示不过滤。
     :param game_type: 玩法标识，空串表示不过滤。
-    :param source: `GAME_SOURCE_*` 之一。
     :param created_from: 起始时间（Unix 秒，含）。
     :param created_to: 结束时间（Unix 秒，含）。
     :param ordering: `GAME_ORDERING_CHOICES` 里的键（调用方已用序列化器校验过）。
@@ -1250,96 +1203,79 @@ def search_games(
     """
     uuids = resolve_room_uuids(keyword)
     if uuids is not None and not uuids:
-        # 关键字解析不出任何房间：直接给空结果，不去扫两张表。
+        # 关键字解析不出任何房间：直接给空结果，不去查归档表。
         return [], 0
 
-    active = [table for table, source_id in GAME_TABLE_SOURCES if source in (GAME_SOURCE_ALL, source_id)]
-    if not active:
-        return [], 0
+    where, params = _game_where_clause(
+        uuids=uuids,
+        game_type=game_type,
+        created_from=created_from,
+        created_to=created_to,
+    )
 
-    selects: list[str] = []
-    params: list[Any] = []
-    for table, source_id in GAME_TABLE_SOURCES:
-        if table not in active:
-            continue
-        where, where_params = _game_where_clause(
-            uuids=uuids,
-            game_type=game_type,
-            created_from=created_from,
-            created_to=created_to,
-        )
-        selects.append(
-            f"SELECT '{source_id}' AS game_source, {GAME_COLUMNS} FROM {table}{where}"
-        )
-        params.extend(where_params)
-    union_sql = " UNION ALL ".join(selects)
-
-    count_rows = _run(f"SELECT COUNT(*) AS total FROM ({union_sql}) AS merged_games", list(params))
+    count_rows = _run(f"SELECT COUNT(*) AS total FROM {GAME_ARCHIVE_TABLE}{where}", list(params))
     total = int(count_rows[0]["total"]) if count_rows else 0
     if total == 0:
         return [], 0
 
     order_sql = GAME_ORDERING_CHOICES.get(ordering, GAME_ORDERING_CHOICES[GAME_DEFAULT_ORDERING])
     offset = max(page - 1, 0) * page_size
-    rows = _run(f"{union_sql} ORDER BY {order_sql} LIMIT %s OFFSET %s", [*params, page_size, offset])
+    rows = _run(
+        f"SELECT {GAME_COLUMNS} FROM {GAME_ARCHIVE_TABLE}{where}"
+        f" ORDER BY {order_sql} LIMIT %s OFFSET %s",
+        [*params, page_size, offset],
+    )
     return [_normalize_game(row) for row in rows], total
 
 
 def get_room_games(room_uuid: str) -> list[dict[str, Any]]:
-    """取一个房间的全部对局（按局号升序；跨两张表）。
+    """取一个房间的全部**归档**对局（按局号升序）。
 
     一个房间的局数上限是 `conf.maxGames`（4 或 8），所以这里不分页、一次取完。
+    房间还没结束（对局全在在局表 `t_games` 里）时返回空列表——那是刻意的：
+    对局记录只认归档表（见本节开头的说明）。
     """
     text = (room_uuid or "").strip()
     if not text:
         return []
-    sql, params = _game_union(
-        uuids=[text],
-        game_type="",
-        created_from=None,
-        created_to=None,
-        columns=GAME_COLUMNS,
-        tail=" ORDER BY game_index ASC",
+    rows = _run(
+        f"SELECT {GAME_COLUMNS} FROM {GAME_ARCHIVE_TABLE}"
+        " WHERE room_uuid = %s ORDER BY game_index ASC",
+        [text],
     )
-    return [_normalize_game(row) for row in _run(sql, params)]
+    return [_normalize_game(row) for row in rows]
 
 
 def get_game(room_uuid: str, game_index: int) -> dict[str, Any] | None:
-    """取某一局（`room_uuid` + `game_index`）；不存在时返回 `None`。
+    """取归档表里的某一局（`room_uuid` + `game_index`）；不存在时返回 `None`。
 
-    归档表优先：同一局同时出现在两张表里只可能是 `archive_games()` 搬迁途中的一瞬间，
-    此时归档表那一行才是"最终形态"。
+    **只查归档表**：如果这一局只存在于在局表（房间还没结束），这里同样返回 `None`，
+    调用方报 `14001`。
     """
     text = (room_uuid or "").strip()
     if not text:
         return None
-    for table, source in GAME_TABLE_SOURCES:
-        rows = _run(
-            f"SELECT '{source}' AS game_source, {GAME_COLUMNS} FROM {table}"
-            " WHERE room_uuid = %s AND game_index = %s LIMIT 1",
-            [text, int(game_index)],
-        )
-        if rows:
-            return _normalize_game(rows[0])
-    return None
+    rows = _run(
+        f"SELECT {GAME_COLUMNS} FROM {GAME_ARCHIVE_TABLE}"
+        " WHERE room_uuid = %s AND game_index = %s LIMIT 1",
+        [text, int(game_index)],
+    )
+    return _normalize_game(rows[0]) if rows else None
 
 
 def count_games_by_room(uuids: list[str]) -> dict[str, int]:
-    """统计每个房间的对局条数（一次查询覆盖所有 uuid）。"""
+    """统计每个房间的**归档**对局条数（一次查询覆盖所有 uuid）。
+
+    只数归档表：玩家战绩快照里可能有"房间还在打"的条目，那时条数是 0，
+    前端据此提示"该房间的对局还没归档"，而不是给出一个点进去什么都没有的局数。
+    """
     wanted = sorted({str(uuid).strip() for uuid in uuids if str(uuid).strip()})
     if not wanted:
         return {}
-    sql, params = _game_union(
-        uuids=wanted,
-        game_type="",
-        created_from=None,
-        created_to=None,
-        columns="room_uuid",
-        tail="",
-    )
     rows = _run(
-        f"SELECT room_uuid, COUNT(*) AS total FROM ({sql}) AS merged_games GROUP BY room_uuid",
-        params,
+        f"SELECT room_uuid, COUNT(*) AS total FROM {GAME_ARCHIVE_TABLE}"
+        f" WHERE room_uuid IN ({_placeholders(len(wanted))}) GROUP BY room_uuid",
+        list(wanted),
     )
     return {str(row["room_uuid"]): int(row["total"] or 0) for row in rows}
 

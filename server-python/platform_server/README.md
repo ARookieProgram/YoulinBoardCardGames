@@ -83,10 +83,10 @@ server-python/platform_server/
 │   │   ├─ views.py             列表 / 概览 / 详情 / 预留的强制解散
 │   │   ├─ urls.py              /api/rooms/ 路由
 │   │   └─ exceptions.py        房间相关的类型化异常（13001）
-│   └─ games/                   **对局记录**（见 §6.7；同样没有模型）
+│   └─ games/                   **对局记录**（见 §6.7；只读归档表 `t_games_archive`，同样没有模型）
 │       ├─ decoding.py          **唯一懂玩法的地方**：牌 id 与动作流水的解读
-│       ├─ serializers.py       入参校验 + 出参形状（对局行 / 单局详情 / 玩家战绩）
-│       ├─ views.py             列表 / 概览 / 房间对局 / 单局出牌记录 / 玩家战绩
+│       ├─ serializers.py       入参校验 + 出参形状（归档对局行 / 单局详情 / 玩家战绩）
+│       ├─ views.py             归档列表 / 概览 / 房间对局 / 单局出牌记录 / 玩家战绩
 │       ├─ urls.py              /api/games/ 路由
 │       └─ exceptions.py        对局相关的类型化异常（14001）
 ├─ sql/db_scmj_admin.sql         ← **生成产物**：MySQL 建库建表脚本（不要手改）
@@ -100,9 +100,9 @@ server-python/platform_server/
 ├─ tests/test_admins.py          管理员账号管理接口测试（80 项）
 ├─ tests/test_players.py         玩家管理 + 内部封禁校验 + 只读隔离测试（56 项）
 ├─ tests/test_rooms.py           房间管理 + 预留入口 + 只读隔离测试（32 项）
-├─ tests/test_games.py           对局记录 + 出牌流水解读 + 只读隔离测试（49 项）
+├─ tests/test_games.py           对局记录（只读归档表）+ 出牌流水解读 + 只读隔离测试（50 项）
 ├─ tests/test_sql_script.py      建库脚本的内容自检（13 项）
-└─ 合计 `manage.py test`          259 项
+└─ 合计 `manage.py test`          260 项
 ```
 
 ---
@@ -608,20 +608,27 @@ cd server-python/platform_server
 **回看已经打完的牌局**：每个房间打了哪几局、每局四个人各多少分、**每个玩家在那一局
 打了哪些牌**（出牌 / 摸牌 / 碰 / 杠 / 胡 / 自摸的完整流水），以及开局手牌与牌墙消耗。
 
+**数据只来自归档表 `t_games_archive`**（不读在局表 `t_games`）：游戏服在房间结束
+（打完 / 被解散）时才调用 `archive_games()` 把整批在局行搬进归档表并删掉原行，
+所以后台看到的每一局都是**终局**（房间已经不存在、分数不会再变），
+不会出现"点开一看是别人正在打的牌局"。房间还在打的对局在后台**查不到**（`14001`），
+这是刻意的口径。
+
 | 能力 | 端点 | 权限 |
 | --- | --- | --- |
-| 列表（关键字 / 玩法 / 来源 / 日期区间 / 排序 / 分页） | `GET /api/games/` | 登录即可 |
-| 概览（总局数 / 已结束 / 进行中 / 最近 24 小时） | `GET /api/games/overview/` | 登录即可 |
-| 一个房间的全部对局 + 四个座位 | `GET /api/games/rooms/<房间号或uuid>/` | 登录即可 |
+| 归档列表（关键字 / 玩法 / 日期区间 / 排序 / 分页） | `GET /api/games/` | 登录即可 |
+| 概览（归档总局数 / 覆盖房间数 / 最近 24 小时） | `GET /api/games/overview/` | 登录即可 |
+| 一个房间的全部归档对局 + 四个座位 | `GET /api/games/rooms/<房间号或uuid>/` | 登录即可 |
 | **单局出牌记录**（时间线 + 分座位 + 开局快照） | `GET /api/games/rooms/<房间号或uuid>/<局号>/` | 登录即可 |
 | 某个玩家的房间战绩 | `GET /api/games/players/<玩家ID>/` | 登录即可 |
 
 数据来源与三条硬边界（与玩家 / 房间管理**同一条只读通道**）：
 
-* SQL 全部写在 **`apps/players/player_source.py`** 的"对局记录"那一段；
-  `apps/games/` 里**只有解码、序列化、视图、路由**，
+* SQL 全部写在 **`apps/players/player_source.py`** 的"对局记录"那一段，
+  且**只查 `t_games_archive`**；`apps/games/` 里**只有解码、序列化、视图、路由**，
   没有连接、没有模型、没有迁移（`tests/test_games.py` 用 AST 钉住这一点，
-  并断言跑完所有对局接口后玩家库上执行的每一条 SQL 都是 SELECT）；
+  断言跑完所有对局接口后玩家库上执行的每一条 SQL 都是 SELECT，
+  并且每条涉及对局表的 SQL 都只碰归档表）；
 * `apps/games/decoding.py` 是**唯一"懂玩法"的地方**：牌 id（0~8 筒 / 9~17 条 /
   18~26 万）与动作编号（1 出牌 / 2 摸牌 / 3 碰 / 4 杠 / 5 胡 / 6 自摸）的口径都写在那里，
   与 `gamemgr_*` 顶部常量、客户端 `ReplayMgr` 逐字一致。改这里要同步看
@@ -630,24 +637,27 @@ cd server-python/platform_server
 
 #### 6.7.1 四张表的对照
 
-| 表 | 内容 | 生命周期 |
-| --- | --- | --- |
-| `t_rooms` | **存活房间**的配置与座位 | 房间销毁时整行删除（见 §6.6） |
-| `t_users.history` | 每个玩家最近 **10 场**的房间级战绩快照 | 覆盖式滚动（`store_single_history` 裁剪） |
-| `t_games` | **在局对局**（房间还在） | 房间打完 / 解散时被 `archive_games()` 搬走并删除 |
-| `t_games_archive` | **已结束对局**（长期保留） | 只增不减（除非人工清理） |
+| 表 | 内容 | 生命周期 | 对局记录读它吗 |
+| --- | --- | --- | --- |
+| `t_rooms` | **存活房间**的配置与座位 | 房间销毁时整行删除（见 §6.6） | 不读（只在对局里用来认玩家） |
+| `t_users.history` | 每个玩家最近 **10 场**的房间级战绩快照 | 覆盖式滚动（`store_single_history` 裁剪） | 不读（只在玩家战绩与身份反查时用） |
+| `t_games` | **在局对局**（房间还在） | 房间打完 / 解散时被 `archive_games()` 搬走并删除 | **刻意不读** |
+| `t_games_archive` | **已结束对局**（长期保留） | 只增不减（除非人工清理） | **唯一的数据来源** |
 
 `t_games` 与 `t_games_archive` 结构完全相同（`room_uuid` + `game_index` 联合主键），
-所以列表接口用 `UNION ALL` 合并两张表再统一排序分页，`game_source` 列标出这一行来自哪张表。
+但后台只查后者，所以列表 / 概览 / 房间对局 / 单局详情都是**单表查询**，
+没有 `UNION ALL`、也没有"来源"字段。
 
 #### 6.7.2 三条必须知道的口径
 
-1. **每结束一局才写一行**。`gamemgr.do_game_over()` 在结算时才写
-   `base_info` / `action_records` / `result`，所以房间刚建好、第一局还在打时
-   一条记录都没有——`14001` 就是这个意思，不是"查错了"。
-2. **表里没有玩家身份**。两张表只有**座位号**，玩家身份要另外解析
+1. **只读归档表，房间结束才归档**。`gamemgr.do_game_over()` 在每局结算时把
+   `base_info` / `action_records` / `result` 写进 `t_games`，等房间打完 / 被解散
+   （`is_end` 或强制解散）才由 `archive_games()` 整批搬进 `t_games_archive`。
+   所以"房间还在打"时后台查不到它的对局——`14001` 就是这个意思，不是"查错了"。
+2. **表里没有玩家身份**。归档行只有**座位号**，玩家身份要另外解析
    （`player_source.resolve_room_identities()`），优先级是：
-   ① 房间还在 `t_rooms` 里 → 用座位列（`identity_source = rooms`）；
+   ① 房间行还在 `t_rooms` 里 → 用座位列（`identity_source = rooms`；
+   正常流程下归档时房间已经销毁，所以这一档基本上是"兜历史数据"）；
    ② 房间已销毁 → 扫 `t_users.history` 按 uuid 反查（`history`）；
    ③ 都没有 → 座位显示成 `座位N`（`unknown`）。
    第 ③ 种情况不是 bug：`store_history()` 只在 `numOfGames > 1` 时写快照，
@@ -656,12 +666,12 @@ cd server-python/platform_server
    `uuid = str(int(time.time() * 1000)) + roomId`，而 `roommgr.generate_room_id()`
    固定生成 6 位数字，所以 uuid 就是 **13 位毫秒时间戳 + 6 位房间号** 的 19 位数字串。
    `player_source.room_id_from_uuid()` 据此反推房间号；
-   "手上只有房间号"时 `_uuids_by_room_id()` 按这个后缀去两张表里反查
+   "手上只有房间号"时 `_uuids_by_room_id()` 按这个后缀**在归档表里**反查
    （`LIKE '%<6 位>'` 用不上索引，是一次全表扫，但这是唯一可行的查法）。
 
 #### 6.7.3 出牌记录是怎么解出来的
 
-`t_games.action_records` 是 `gamemgr` 里 `game.actionList` 的紧凑 JSON，
+`t_games_archive.action_records` 是 `gamemgr` 里 `game.actionList` 的紧凑 JSON，
 **扁平的整数数组，每三个一组**：
 
 ```
@@ -686,13 +696,13 @@ cd server-python/platform_server
 
 #### 6.7.4 性能取舍（值得知道）
 
-对局表**没有玩家维度**，所以有两处是按关键字才付的代价：
+归档表**没有玩家维度**，所以有两处是按关键字才付的代价：
 
 * `t_users.history` 的 `LIKE` **是全表扫**（`history` 列最大 4096 字节、没有索引）。
   限制手段：只在必要时才扫、模式精确构造（uuid / 房间号 / 玩家 ID）、
   结果带 `LIMIT`（`HISTORY_SCAN_LIMIT`）、一次最多 20 条模式
   （`HISTORY_SCAN_CHUNK`，超出分批）、列表页只为**当前页**的 uuid 解析身份；
-* 按房间号后缀反查 uuid 是对局表的一次全表扫（同上，只按需触发）。
+* 按房间号后缀反查 uuid 是归档表的一次全表扫（同上，只按需触发）。
 
 房间的局数上限是 4 或 8，所以"一个房间的全部对局"永远不需要分页，一次取完。
 
@@ -782,8 +792,8 @@ cd server-python/platform_server
 PLATFORM_DB_ENGINE=sqlite ../.venv/bin/python manage.py test
 ```
 
-**259 项**（`test_auth` 29 + `test_admins` 80 + `test_players` 56 + `test_rooms` 32
-+ `test_games` 49 + `test_sql_script` 13），覆盖登录成功/失败、账号枚举防护、禁用账号、
+**260 项**（`test_auth` 29 + `test_admins` 80 + `test_players` 56 + `test_rooms` 32
++ `test_games` 50 + `test_sql_script` 13），覆盖登录成功/失败、账号枚举防护、禁用账号、
 大小写、IP 记录、`/me/`、令牌轮换与黑名单、退出登录、**账号体系隔离**、`seed_admin`、
 健康检查、**管理员账号管理（权限边界 / 列表搜索过滤排序分页 / 新建与判重 / 弱口令 /
 角色与 `is_superuser` 同步 / 两条自锁护栏 / 停用后立刻登不进来 / 重置与修改口令 /
@@ -791,9 +801,10 @@ refresh 吊销 / 删除后封禁流水仍可读 / 不碰玩家库）**、
 玩家列表/搜索/过滤/分页、封禁解封与业务码、预留入口契约、**玩家库只读隔离**、
 **内部封禁校验接口（签名向量 / fail-open / 不配密钥就拒服务）**、
 房间列表/搜索/玩法与状态过滤/分页、房间详情与概览、预留的强制解散入口、
-**房间路径的只读隔离**、对局列表/搜索四种口径/来源与日期过滤/分页、概览、
-房间对局与三种玩家身份来源、**出牌流水解读（时间线 / 被碰标注 / 分座位动作 /
-起手牌 / 牌墙消耗 / 脏数据只记警告）**、玩家战绩与名次、**对局路径的只读隔离**，
+**房间路径的只读隔离**、归档对局列表/搜索五种口径/玩法与日期过滤/分页、概览、
+房间对局与三种玩家身份来源、**只读归档表（在局表里的对局一律查不到）**、
+**出牌流水解读（时间线 / 被碰标注 / 分座位动作 / 起手牌 / 牌墙消耗 / 脏数据只记警告）**、
+玩家战绩与名次、**对局路径的只读隔离（每条涉及对局表的 SQL 都只碰归档表）**，
 以及建库脚本的内容自检。
 
 默认（不带 `PLATFORM_DB_ENGINE=sqlite`）会连 MySQL 建测试库，
@@ -849,8 +860,8 @@ cd server-python/platform_server
 4. **房间管理（16 项，其中 10 项依赖房间数据）**：未登录被拒 → 非法参数 `10001` →
    房间不存在 `13001` → 概览 → 列表分页形状 → 详情（含四个座位）→
    预留的解散入口返回 `reserved: true` 且**不改动房间**；
-5. **对局记录（20 项，其中 13 项依赖对局数据）**：未登录被拒 → 非法参数 `10001` →
-   对局不存在 `14001` → 玩家不存在 `12001` → 概览 → 列表（含动作统计）→
+5. **对局记录（20 项，其中 13 项依赖归档对局数据）**：未登录被拒 → 非法参数 `10001` →
+   对局不存在 `14001` → 玩家不存在 `12001` → 概览 → 归档列表（含动作统计）→
    房间对局（含四个座位）→ **单局出牌记录**（`timeline` / `seat_actions` / `initial_hands`）→
    按房间号搜得到；
 6. **管理员账号管理（35 项，第 13 节；不依赖玩家数据，永远会跑）**：
@@ -863,7 +874,7 @@ cd server-python/platform_server
    这一段会新建并删除一个带随机后缀的临时管理员，跑完库里不留东西。
 
 > 第 2、4、5 段需要玩家库里有数据：第 2 段要**未被封禁**的玩家，第 4 段要 `t_rooms`
-> 里有存活房间，第 5 段要 `t_games` / `t_games_archive` 里有对局。
+> 里有存活房间，第 5 段要归档表 `t_games_archive` 里有对局（只有 `t_games` 不算）。
 > 真实 `db_scmj` 为空时，脚本会**跳过**依赖数据的断言并打印一行提示，
 > 不会把它们算成失败。
 

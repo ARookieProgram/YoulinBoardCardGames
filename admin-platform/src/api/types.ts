@@ -360,14 +360,12 @@ export interface RoomsOverview {
 // ---------------------------------------------------------------- 对局记录
 
 /**
- * 对局来自哪张表。
+ * 对局里的玩家身份是从哪儿查到的（与后端 `GAME_IDENTITY_*` 一致）。
  *
- * 游戏服每开一局就往 `t_games` 写一行，房间打完 / 被解散时整批搬进
- * `t_games_archive` 并删掉在局行（见 `player_source.GAME_TABLE_SOURCES`）。
+ * 对局记录**只读归档表** `t_games_archive`：游戏服在房间结束（打完 / 被解散）时
+ * 才把在局行整批搬过去，所以后台看到的每一局都是终局（见 `player_source.py`）。
+ * 房间还在打的对局在后台查不到，`14001` 就是这个意思。
  */
-export type GameSource = 'archive' | 'live'
-
-/** 对局里的玩家身份是从哪儿查到的（与后端 `GAME_IDENTITY_*` 一致）。 */
 export type GameIdentitySource = 'rooms' | 'history' | 'unknown'
 
 /**
@@ -423,9 +421,6 @@ export interface GameSummary {
   game_index: number
   /** 给运营看的"第几局"（`game_index + 1`）。 */
   round: number
-  source: GameSource
-  /** 中文来源名（进行中 / 已结束）。 */
-  source_label: string
   type: string
   /** 玩法名（与大厅一致，未知玩法回退成原始标识）。 */
   type_label: string
@@ -441,7 +436,12 @@ export interface GameSummary {
   identity_source: GameIdentitySource
   /** 身份来源的中文说明（给运营看的）。 */
   identity_note: string
-  /** 房间是否还在 `t_rooms` 里（没被销毁）。 */
+  /**
+   * 房间行是否还在 `t_rooms` 里。
+   *
+   * 正常流程下归档时房间已经销毁，所以这里基本都是 `false`；
+   * `true` 只可能是"房间行还在但归档记录已经存在"的历史数据。
+   */
   live: boolean
   has_action_records: boolean
   action_count: number
@@ -605,11 +605,12 @@ export interface PlayerGamesResult extends PageResult<PlayerGameRecord> {
   note: string
 }
 
-/** 对局记录列表页顶部的概览数字。 */
+/** 对局记录列表页顶部的概览数字（**只统计归档表**）。 */
 export interface GamesOverview {
+  /** 归档对局总数。 */
   total_games: number
-  archived_games: number
-  live_games: number
+  /** 归档覆盖到的房间数（`COUNT(DISTINCT room_uuid)`）。 */
+  total_rooms: number
   games_last_24h: number
   rooms_last_24h: number
 }

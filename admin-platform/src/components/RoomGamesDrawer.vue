@@ -5,8 +5,9 @@
  * 与「房间管理」的详情抽屉是两回事：
  *
  *  * 房间管理看的是 `t_rooms`，只有**还活着**的房间；
- *  * 这里看的是 `t_games` / `t_games_archive`，**打完的房间照样能查**
+ *  * 这里看的是归档表 `t_games_archive`，**打完的房间照样能查**
  *    （这正是它的价值：玩家报"某局有问题"时，房间早就从 t_rooms 里删掉了）。
+ *    房间还在打的对局没归档，这里就是空的——那是刻意口径，不是 bug。
  *
  * 座位身份由后端解析（存活房间表 → 战绩快照 → 未知），`identity_note` 会说明来源；
  * 点某一局的"出牌记录"把事件抛给父组件，由父组件打开单局详情抽屉
@@ -24,7 +25,6 @@ import {
   roomRefText,
   roundText,
   seatDisplayName,
-  sourceTagType,
   winnerText,
 } from '@/utils/game'
 
@@ -115,8 +115,9 @@ defineExpose({ reload: loadRoom })
 
     <template v-else-if="room">
       <div class="room-tags">
-        <el-tag :type="room.live ? 'success' : 'info'" effect="dark" size="small">
-          {{ room.live ? '房间还在（进行中）' : '房间已销毁（归档）' }}
+        <el-tag type="info" effect="dark" size="small">归档对局</el-tag>
+        <el-tag v-if="room.live" type="warning" effect="plain" size="small">
+          房间行仍在 t_rooms
         </el-tag>
         <el-tag type="info" effect="plain" size="small">{{ room.type_label || room.type || '—' }}</el-tag>
         <el-tag :type="identityTagType(room.identity_source)" effect="light" size="small">
@@ -161,13 +162,6 @@ defineExpose({ reload: loadRoom })
         <el-table-column label="局" width="70">
           <template #default="{ row }: { row: GameSummary }">{{ roundText(row) }}</template>
         </el-table-column>
-        <el-table-column label="来源" width="90">
-          <template #default="{ row }: { row: GameSummary }">
-            <el-tag :type="sourceTagType(row.source)" size="small" effect="plain">
-              {{ row.source_label }}
-            </el-tag>
-          </template>
-        </el-table-column>
         <el-table-column label="开局时间" width="160">
           <template #default="{ row }: { row: GameSummary }">{{ row.created_at || '—' }}</template>
         </el-table-column>
@@ -185,7 +179,9 @@ defineExpose({ reload: loadRoom })
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty description="这个房间还没有对局记录（第一局结束后才会写库）" />
+          <el-empty
+            description="这个房间还没有归档对局（对局记录只读归档表：房间打完 / 被解散后才会归档）"
+          />
         </template>
       </el-table>
     </template>

@@ -288,7 +288,7 @@ else
   fi
 fi
 
-echo "== 12. 对局记录（只读：t_games / t_games_archive）=="
+echo "== 12. 对局记录（只读归档表 t_games_archive）=="
 
 # 12.1 认证与参数校验
 nologin_game=$(curl -s -w '\n%{http_code}' "$BASE/api/games/")
@@ -322,8 +322,13 @@ else
   check "对局列表含动作统计" "yes" \
     "$(printf '%s' "$game_list" | grep -q '"action_summary"' && echo yes || echo no)"
 
+  # 对局记录只读归档表；列表默认按开局时间倒序，所以第一行的局号不一定是 0，
+  # 这里把 uuid 与局号一起取出来，避免"拿第 1 行去查第 0 局"这种假失败。
   room_uuid=$(printf '%s' "$game_list" | python3 -c \
     "import json,sys;d=json.load(sys.stdin);items=d['data']['items'];print(items[0]['room_uuid'] if items else '')" \
+    2>/dev/null || echo "")
+  game_index=$(printf '%s' "$game_list" | python3 -c \
+    "import json,sys;d=json.load(sys.stdin);items=d['data']['items'];print(items[0]['game_index'] if items else '')" \
     2>/dev/null || echo "")
 
   if [ -z "$room_uuid" ]; then
@@ -336,7 +341,7 @@ else
       "$(printf '%s' "$room_games" | python3 -c \
         "import json,sys;print(len(json.load(sys.stdin)['data']['seats']))" 2>/dev/null || echo "")"
 
-    game_detail=$(curl -s "$BASE/api/games/rooms/$room_uuid/0/" -H "Authorization: Bearer $access2")
+    game_detail=$(curl -s "$BASE/api/games/rooms/$room_uuid/$game_index/" -H "Authorization: Bearer $access2")
     check "单局详情 code=0" "0" "$(jq_get "$game_detail" "['code']")"
     check "详情含出牌时间线" "yes" \
       "$(printf '%s' "$game_detail" | grep -q '"timeline"' && echo yes || echo no)"

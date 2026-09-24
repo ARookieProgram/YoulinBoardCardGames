@@ -10,7 +10,7 @@
  *  3. **开局快照**——`t_games.base_info`：四家起手牌与牌墙消耗
  *     （洗好的 108 张、发出 53 张、被摸走多少、还剩多少）。
  *
- * 数据来自 `t_games` / `t_games_archive` 的只读查询；牌面与动作名的中文口径
+ * 数据来自归档表 `t_games_archive` 的只读查询（对局记录只读归档表）；牌面与动作名的中文口径
  * 全部由后端 `apps/games/decoding.py` 给出（`tile_label` / `action_label`），
  * 前端只负责排版与配色。
  *
@@ -106,7 +106,6 @@ const summaryRows = computed(() => {
     { label: '房间 uuid', value: game.room_uuid },
     { label: '局号', value: `${roundText(game)}（game_index=${game.game_index}）` },
     { label: '玩法', value: game.type_label || game.type || '—' },
-    { label: '对局来源', value: game.source_label },
     { label: '开局时间', value: game.created_at || '—' },
     { label: '本局庄家', value: `座位 ${game.button}` },
     {

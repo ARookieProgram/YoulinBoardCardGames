@@ -84,12 +84,6 @@ class GameListQuerySerializer(serializers.Serializer[Any]):
         default="",
         help_text="玩法标识；不传或空串表示全部",
     )
-    source = serializers.ChoiceField(
-        choices=player_source.GAME_SOURCE_CHOICES,
-        required=False,
-        default=player_source.GAME_SOURCE_ALL,
-        help_text="进行中（t_games）/ 已结束（t_games_archive）/ 全部",
-    )
     date_from = serializers.DateField(
         required=False, allow_null=True, default=None, help_text="按本局开始日期过滤（含）"
     )
@@ -221,7 +215,7 @@ def _identity_known(identity: dict[str, Any] | None) -> bool:
 def game_seats(row: dict[str, Any], identity: dict[str, Any] | None) -> list[dict[str, Any]]:
     """四个座位 + 本局得分 / 房间累计得分。
 
-    * `score`  —— **本局**得分，来自 `t_games.result`（权威，一定存在）；
+    * `score`  —— **本局**得分，来自归档行的 `result` 列（权威，一定存在）；
     * `room_score` —— **房间累计**得分，来自 `t_rooms.user_scoreN` 或历史战绩；
       身份查不到时是 `None`（不是 0——0 会被误读成"打平"）。
     """
@@ -257,7 +251,6 @@ def game_row_payload(
     actions, _ = decoding.decode_action_records(row.get("action_records"))
     summary = decoding.summarize_actions(actions)
     game_index = int(row.get("game_index") or 0)
-    source = str(row.get("source") or player_source.GAME_SOURCE_ARCHIVE)
     identity_source = str((identity or {}).get("identity_source") or player_source.GAME_IDENTITY_UNKNOWN)
     return {
         "room_uuid": room_uuid,
@@ -265,8 +258,6 @@ def game_row_payload(
         "game_index": game_index,
         # 对局里给运营看的是"第几局"，游戏服的 `game_index` 从 0 开始，这里 +1。
         "round": game_index + 1,
-        "source": source,
-        "source_label": player_source.GAME_SOURCE_LABELS.get(source, source),
         "type": game_type,
         "type_label": _type_label(game_type),
         "button": int(row.get("button") or 0),
@@ -290,7 +281,7 @@ def game_row_payload(
 
 
 def _initial_hands(row: dict[str, Any], seats: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """开局四家手牌（来自 `t_games.base_info.game_seats`）。"""
+    """开局四家手牌（来自归档行 `t_games_archive.base_info.game_seats`）。"""
     raw = row.get("base_info") or {}
     hands_raw = raw.get("game_seats")
     hands: list[dict[str, Any]] = []
@@ -466,7 +457,7 @@ def player_game_payload(
 
     :param entry: `player_source.parse_player_history()` 的条目。
     :param player_id: 当前看的是谁（用来标出"我"与算名次）。
-    :param game_count: 该房间在 `t_games` / `t_games_archive` 里的局数。
+    :param game_count: 该房间在归档表 `t_games_archive` 里的局数（房间没结束就是 0）。
     """
     seats: list[dict[str, Any]] = []
     my_seat: int | None = None

@@ -4,9 +4,12 @@
  * 两层分工与房间管理一致：
  *
  *  - **后端**给原始值 + 它自己拥有的展示名（`action_label` / `tile_label` /
- *    `tile_code` / `source_label` / `type_label` / `identity_note`）；
+ *    `tile_code` / `type_label` / `identity_note`）；
  *  - **前端**只用这些字段做排版与配色，**不重新定义玩法口径**
  *    （牌面与动作名的权威实现是 `apps/games/decoding.py`）。
+ *
+ * 对局记录**只读归档表** `t_games_archive`，所以这里没有"来源（进行中 / 已结束）"
+ * 这类选项：后台看到的每一局都是打完的终局。
  *
  * 这样改文案或换配色不会影响接口契约，而玩法口径只有一处定义。
  */
@@ -16,13 +19,6 @@ import { ROOM_TYPE_OPTIONS } from '@/utils/room'
 
 /** 玩法下拉项（与房间管理共用同一份口径）。 */
 export const GAME_TYPE_OPTIONS = ROOM_TYPE_OPTIONS
-
-/** 来源下拉项（与后端 `GAME_SOURCE_CHOICES` 一致）。 */
-export const GAME_SOURCE_OPTIONS: readonly { value: string; label: string }[] = [
-  { value: 'all', label: '全部' },
-  { value: 'archive', label: '已结束' },
-  { value: 'live', label: '进行中' },
-]
 
 /** 排序下拉项（与后端 `GAME_ORDERING_CHOICES` 一致）。 */
 export const GAME_ORDERING_OPTIONS: readonly { value: string; label: string }[] = [
@@ -37,11 +33,6 @@ const IDENTITY_TAG_TYPES: Record<string, 'success' | 'info' | 'warning'> = {
   rooms: 'success',
   history: 'info',
   unknown: 'warning',
-}
-
-/** 来源 → 标签颜色（进行中比已结束更"活"）。 */
-export function sourceTagType(source: string): 'success' | 'info' {
-  return source === 'live' ? 'success' : 'info'
 }
 
 /** 身份来源 → 标签颜色。 */

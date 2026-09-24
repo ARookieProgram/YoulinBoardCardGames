@@ -2,15 +2,19 @@
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| GET | `/api/games/` | 登录即可 | 对局列表：关键字 / 玩法 / 来源 / 日期 / 排序 / 分页 |
-| GET | `/api/games/overview/` | 登录即可 | 概览：总局数、已结束、进行中、最近 24 小时 |
-| GET | `/api/games/rooms/<房间号或uuid>/` | 登录即可 | 一个房间的全部对局 + 四个座位 |
-| GET | `/api/games/rooms/<房间号或uuid>/<局号>/` | 登录即可 | **单局详情：四家出牌记录**（时间线 + 每人自己的动作） |
+| GET | `/api/games/` | 登录即可 | 归档对局列表：关键字 / 玩法 / 日期 / 排序 / 分页 |
+| GET | `/api/games/overview/` | 登录即可 | 概览：归档总局数、覆盖房间数、最近 24 小时 |
+| GET | `/api/games/rooms/<房间号或uuid>/` | 登录即可 | 一个房间的全部**归档**对局 + 四个座位 |
+| GET | `/api/games/rooms/<房间号或uuid>/<局号>/` | 登录即可 | **单局详情：四家出牌记录**（归档行；时间线 + 每人自己的动作 + 开局快照） |
 | GET | `/api/games/players/<玩家ID>/` | 登录即可 | 某个玩家的房间战绩（来自 `t_users.history`，最多最近 10 场） |
 
-数据来源：**玩家库 `db_scmj` 的 `t_games` / `t_games_archive`**，与玩家管理、房间管理
+数据来源：**玩家库 `db_scmj` 的 `t_games_archive`（归档表）**，与玩家管理、房间管理
 走**同一条只读通道**（`apps/players/player_source.py`，只执行 SELECT）。
 本应用没有模型，也不往玩家库写任何一行。
+
+**只读归档表**：房间结束（打完 / 被解散）时游戏服才把在局行 `archive_games()` 搬进归档表，
+所以后台看到的每一局都是**终局**；房间还在打的对局（只在 `t_games` 里）查不到，这是刻意的
+（见 `player_source.py` 对局记录那一段的说明）。
 
 三条只有读过这两张表的人才知道的坑（README §6.7 有完整说明）：
 
@@ -80,7 +84,7 @@ class GameListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request: Request) -> Response:
-        """按关键字 / 玩法 / 来源 / 日期分页查询对局。"""
+        """按关键字 / 玩法 / 日期分页查询归档对局。"""
         query = GameListQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         params: dict[str, Any] = dict(query.validated_data)
@@ -88,7 +92,6 @@ class GameListView(APIView):
         rows, total = player_source.search_games(
             keyword=params["keyword"],
             game_type=params["game_type"],
-            source=params["source"],
             created_from=day_bounds(params["date_from"]),
             created_to=day_end_seconds(params["date_to"]),
             ordering=params["ordering"],
@@ -114,7 +117,7 @@ class GameOverviewView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request: Request) -> Response:
-        """返回总局数、已结束 / 进行中局数与最近 24 小时的对局 / 房间数。"""
+        """返回归档总局数、覆盖房间数与最近 24 小时的对局 / 房间数。"""
         return envelope.ok(player_source.game_overview())
 
 
@@ -160,7 +163,7 @@ class PlayerGameListView(APIView):
     def get(self, request: Request, player_id: int) -> Response:
         """从 `t_users.history` 读该玩家的战绩，并补上每个房间的局数。
 
-        刻意**不查 `t_games` 的逐局明细**：玩家侧的战绩快照是"房间级"的
+        刻意**不查归档表的逐局明细**：玩家侧的战绩快照是"房间级"的
         （`history` 里只有 uuid / 房间号 / 四家总分），逐局明细要点进房间再看，
         这样一次请求最多只扫一遍 `t_users.history`。
         """

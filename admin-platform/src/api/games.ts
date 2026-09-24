@@ -5,16 +5,17 @@
  *
  * | 方法 | 路径 | 说明 |
  * | --- | --- | --- |
- * | GET | `games/` | 对局列表：关键字 / 玩法 / 来源 / 日期 / 排序 / 分页 |
- * | GET | `games/overview/` | 概览：总局数、已结束、进行中、最近 24 小时 |
+ * | GET | `games/` | 对局列表：关键字 / 玩法 / 日期 / 排序 / 分页 |
+ * | GET | `games/overview/` | 概览：归档总局数、覆盖房间数、最近 24 小时 |
  * | GET | `games/rooms/<房间号或uuid>/` | 一个房间的全部对局 + 四个座位 |
  * | GET | `games/rooms/<房间号或uuid>/<局号>/` | **单局详情：四家出牌记录** |
  * | GET | `games/players/<玩家ID>/` | 某个玩家的房间战绩（最多最近 10 场） |
  *
- * 数据由后端通过**只读数据源**读玩家库 `db_scmj` 的 `t_games` / `t_games_archive`。
- * 三条口径上的坑（后端 README §6.7 有完整说明）：
+ * 数据由后端通过**只读数据源**读玩家库 `db_scmj` 的 `t_games_archive`（**归档表**）。
+ * 四条口径上的坑（后端 README §6.7 有完整说明）：
  *
- *  1. **每结束一局才写一行**：房间刚建好、第一局还在打时查不到，`14001` 就是这个意思；
+ *  1. **只读归档表**：游戏服在房间结束（打完 / 被解散）时才把对局整批归档，
+ *     所以后台看到的每一局都是终局；房间还在打的对局查不到（`14001`）；
  *  2. **对局表里没有玩家**：身份靠存活房间表或 `t_users.history` 反查，查不到时
  *     座位显示成 `座位N`（`identity_source === 'unknown'`）；
  *  3. **对局表里也没有房间号**：房间号由后端从 uuid 反推（uuid = 13 位毫秒 + 6 位房间号），
@@ -26,7 +27,6 @@
 import { get } from './client'
 import type {
   GameDetail,
-  GameSource,
   GamesOverview,
   GameSummary,
   PageResult,
@@ -40,8 +40,6 @@ export interface GameListQuery {
   keyword?: string
   /** 玩法标识，空串表示全部。 */
   game_type?: string
-  /** 来源：进行中 / 已结束 / 全部（默认 `all`）。 */
-  source?: GameSource | 'all'
   /** 起始日期（`YYYY-MM-DD`，含）。 */
   date_from?: string
   /** 结束日期（`YYYY-MM-DD`，含）。 */

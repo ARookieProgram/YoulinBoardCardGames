@@ -50,8 +50,11 @@
 房间数据同样**不落本平台的库**（`apps/rooms/` 没有模型，所以也**不用**加进
 `scripts/gen_sql.py` 的 `PLATFORM_APP_LABELS`）。
 
-**对局记录**（`apps/games/`）是同一个红线的第三个落点：`t_games` / `t_games_archive`
+**对局记录**（`apps/games/`）是同一个红线的第三个落点：归档表 `t_games_archive`
 也在玩家库里，同样走 `player_source.py`（对局查询就在该文件"对局记录"那一段）。
+**它只读归档表、刻意不读在局表 `t_games`**：只有房间结束（打完 / 被解散）后归档的对局
+才算"对局记录"，房间还在打的对局后台查不到（这是业务口径，不是遗漏——
+`tests/test_games.py` 有专门的断言钉住它，夹具里刻意放了"只在在局表里"的数据）。
 `tests/test_games.py::GameSourceIsolationTests` 用 AST 与执行期两种方式钉住这一点；
 本应用同样**没有模型、没有迁移**，也不用加进 `PLATFORM_APP_LABELS`。
 它有一个别的应用没有的东西：`apps/games/decoding.py` —— **全平台唯一"懂玩法"的文件**
@@ -88,13 +91,13 @@ platform_server/
 │                                 列表 / 新建 / 改资料与角色 / 启停 / 重置口令 / 删除，
 │                                 除 `me/password/` 外只对超级管理员开放）
 ├─ apps/players/                 玩家管理（只读玩家库 player_source：t_users + t_rooms
-│                                 + t_games / t_games_archive；封禁流水 PlayerBan
-│                                 + 给游戏服的内部校验 internal.py）
+│                                 + t_games_archive（+ 只用于造样例的 t_games）；
+│                                 封禁流水 PlayerBan + 给游戏服的内部校验 internal.py）
 ├─ apps/rooms/                   房间管理（只读监控 t_rooms；**没有模型**，
 │                                 只有 serializers / views / urls / exceptions）
-├─ apps/games/                   对局记录（只读监控 t_games / t_games_archive；**没有模型**；
-│                                 decoding.py 是唯一懂玩法口径的地方：
-│                                 牌 id 与动作流水的解读）
+├─ apps/games/                   对局记录（**只读归档表 t_games_archive**，不读在局表
+│                                 t_games；**没有模型**；decoding.py 是唯一懂玩法口径的
+│                                 地方：牌 id 与动作流水的解读）
 ├─ sql/db_scmj_admin.sql         **生成产物**：建库脚本（不要手改，见 §4.4）
 └─ scripts/
     ├─ run.sh / serve.py         启停脚本（start/stop/restart/status/logs/init/check）
@@ -156,7 +159,7 @@ AssertionError: .accepted_renderer not set on Response
 **"玩家库连不上"只有一个码**（`12004`）：房间数据、对局数据与玩家数据来自同一条
 只读数据源，运维处置方式相同，所以房间侧与对局侧都**不要**再各开一个
 "数据源不可用"。房间侧目前只有 `13001`（房间不存在），
-对局侧只有 `14001`（对局不存在——游戏服每结束一局才写库，所以"还没打完"也会是它）。
+对局侧只有 `14001`（对局不存在——对局记录只读归档表，房间还在打、对局还没归档时也是它）。
 
 ### 4.4 `sql/db_scmj_admin.sql` 是**生成产物**，不要手改
 
@@ -178,7 +181,9 @@ AssertionError: .accepted_renderer not set on Response
 `settings.DATABASES["player"]` 是玩家库（`db_scmj`）的**只读**别名：
 
 * 只有 `apps/players/player_source.py` 用它（`t_users` / `t_rooms` /
-  `t_games` / `t_games_archive` 都走它），SQL 必须过 `_assert_read_only()`（单条 SELECT）。
+  `t_games` / `t_games_archive` 都走它；**对局记录只查 `t_games_archive`**，
+  在局表 `t_games` 只由 `init_player_dev` 写样例），
+  SQL 必须过 `_assert_read_only()`（单条 SELECT）。
   **不要**在这个别名上跑迁移、建表或写数据；
 * 别名的 `TEST.NAME` 是 `None`：测试库由 Django 另建（SQLite 内存库 / MySQL 的
   `test_db_scmj`），`tests/test_players.py` / `test_rooms.py` / `test_games.py`
@@ -193,8 +198,8 @@ AssertionError: .accepted_renderer not set on Response
 ```bash
 cd server-python/platform_server
 
-# 1) 接口测试（不需要 MySQL）。259 项（登录 29 + 管理员账号 80 + 玩家管理 56
-#    + 房间管理 32 + 对局记录 49 + 建库脚本自检 13）。
+# 1) 接口测试（不需要 MySQL）。260 项（登录 29 + 管理员账号 80 + 玩家管理 56
+#    + 房间管理 32 + 对局记录 50 + 建库脚本自检 13）。
 PLATFORM_DB_ENGINE=sqlite ../.venv/bin/python manage.py test
 
 # 1b) 建库 SQL 是否与迁移一致（改了模型必跑）
