@@ -71,3 +71,35 @@ class PlayerSourceReadOnlyViolation(RuntimeError):
     它必须在开发/测试阶段就炸出来，而不是变成一条 503 悄悄放过。
     `tests/test_players.py::PlayerSourceIsolationTests` 会主动触发它。
     """
+
+
+class InternalSignInvalid(PlatformError):
+    """内部接口的签名不对（密钥不一致，或调用方拼错了）。
+
+    复用通用的 `10003`（无权限）而不是新开一个码：语义就是"你没资格调这个接口"。
+    游戏服侧拿到非 0 会 fail-open 放行并打警告日志，所以**密钥不一致的表现是
+    "封禁静默失效"**——排查时先看游戏服日志里的这条警告，再核对两边的密钥。
+    """
+
+    def __init__(self, message: str = "内部接口签名校验失败") -> None:
+        super().__init__(
+            message,
+            code=error_codes.ERR_FORBIDDEN,
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+
+class InternalNotConfigured(PlatformError):
+    """平台侧没有配置内部接口密钥（`PLATFORM_INTERNAL_KEY` 为空）。
+
+    此时**拒绝服务**而不是放行：未配置密钥的"内部接口"等于一个任何人都能查的
+    公开接口。
+    """
+
+    def __init__(self, message: str = "内部接口未配置密钥（PLATFORM_INTERNAL_KEY）") -> None:
+        super().__init__(
+            message,
+            code=error_codes.ERR_SERVER_ERROR,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+

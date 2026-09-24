@@ -4,6 +4,7 @@
 | --- | --- |
 | `/api/auth/` | 管理平台登录（本工程） |
 | `/api/players/` | 玩家管理（只读玩家库 + 本平台的封禁记录） |
+| `/api/internal/` | **内部接口**：给游戏服进程调用，走共享密钥而非 JWT |
 | `/api/health/` | 健康检查（给负载均衡/运维用，不需要登录） |
 | `/admin/` | Django 自带的数据库管理站点（**不是**本平台的前端） |
 
@@ -49,6 +50,8 @@ def health(request: HttpRequest) -> Response:
 urlpatterns = [
     path("api/auth/", include("apps.accounts.urls")),
     path("api/players/", include("apps.players.urls")),
+    # 内部接口：给游戏服调用，密钥认证见 apps/players/internal.py。
+    path("api/internal/players/", include("apps.players.urls_internal")),
     path("api/health/", health, name="health"),
     path("admin/", admin.site.urls),
 ]

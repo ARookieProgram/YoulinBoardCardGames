@@ -235,6 +235,24 @@ def get_player(player_id: int) -> dict[str, Any] | None:
     return _normalize(rows[0]) if rows else None
 
 
+def get_player_by_account(account: str) -> dict[str, Any] | None:
+    """按 account 取一个玩家；不存在时返回 `None`。
+
+    `t_users.account` 上有唯一索引，所以这是一次索引精确查找（内部封禁校验接口
+    每来一次登录就会走一次，必须走索引）。
+
+    :param account: 玩家账号（游戏侧的 `t_users.account`）。
+    """
+    text = (account or "").strip()
+    if not text:
+        return None
+    rows = _run(
+        f"SELECT {PLAYER_COLUMNS} FROM {PLAYER_TABLE} WHERE account = %s LIMIT 1",
+        [text],
+    )
+    return _normalize(rows[0]) if rows else None
+
+
 def search_players(
     *,
     keyword: str = "",

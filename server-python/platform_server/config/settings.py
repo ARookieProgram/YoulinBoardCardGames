@@ -190,6 +190,22 @@ else:
 #: 自定义用户模型：**管理平台自己的账号表**，与 `t_accounts` / `t_users` 无关。
 AUTH_USER_MODEL = "accounts.AdminUser"
 
+# ---------------------------------------------------------------- 内部接口密钥
+#
+# `/api/internal/...` 下的接口是**给游戏服（账号服以外的两个进程）调用的**，不走 JWT：
+# 游戏服没有管理平台账号，调用时用 `md5(参数 + 本密钥)` 证明身份。
+#
+#   * 游戏服侧的配置在 `server-python/configs_*.py` / `server/configs_*.ts` 的
+#     `ban_check()["PRI_KEY"]`，**两边必须逐字一致**（默认值都是本机开发用的串）；
+#   * 生产必须换成随机长串，并让平台与游戏服同时更新——**改一侧会让校验全部变成
+#     10003，而游戏服是 fail-open，表现为"封禁静默失效"**，所以改完要看日志；
+#   * 留空表示"不开放内部接口"：此时任何调用都返回 10500，而不是放行——
+#     未配置密钥绝不能变成一个人人可用的公开接口。
+PLATFORM_INTERNAL_KEY = env("PLATFORM_INTERNAL_KEY", "scmj-ban-check-dev-key")
+
+#: 内部接口的路径前缀。游戏服侧拼的也是这个前缀，改一处要同步另一处。
+PLATFORM_INTERNAL_PREFIX = "api/internal"
+
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {

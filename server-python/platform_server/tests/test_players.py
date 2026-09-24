@@ -25,7 +25,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connections
 from django.db.utils import OperationalError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -33,6 +33,7 @@ from rest_framework.test import APIClient
 from apps.accounts.models import AdminUser
 from apps.players import player_source
 from apps.players.exceptions import PlayerSourceReadOnlyViolation
+from apps.players.internal import build_sign
 from apps.players.models import PlayerBan
 
 LIST_URL = "/api/players/"
@@ -593,3 +594,163 @@ class InitPlayerDevCommandTests(PlayerTestBase):
         accounts = {item["account"] for item in data["items"]}
         self.assertIn("guest_demo1", accounts)
         self.assertGreater(data["total"], len(PLAYERS))
+
+
+INTERNAL_KEY = "test-internal-key"
+BAN_CHECK_URL = "/api/internal/players/ban-check/"
+
+
+def _sign(*, account: str = "", player_id: int | None = None, key: str = INTERNAL_KEY) -> str:
+    """按内部接口的口径算签名（与游戏服两侧实现共用同一条公式）。"""
+    return build_sign(account=account, player_id=player_id, key=key)
+
+
+@override_settings(PLATFORM_INTERNAL_KEY=INTERNAL_KEY)
+class InternalBanCheckTests(PlayerTestBase):
+    """内部封禁校验接口：游戏服登录 / 进房前问的就是它。
+
+    这是**游戏服与平台之间唯一的运行时契约**，所以既要钉住签名口径，
+    也要钉住"只读、不需要 JWT、查不到就说不认识"这几条行为。
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        # 内部接口不认 JWT：一律用没有登录态的客户端调用。
+        self.anon = APIClient()
+
+    def check(self, **params: Any) -> Any:
+        """调内部接口。"""
+        return self.anon.get(BAN_CHECK_URL, params)
+
+    # ------------------------------------------------------------ 签名口径
+
+    def test_sign_matches_reference_vectors(self) -> None:
+        """签名必须与 Node 实现算出来的参考向量逐字一致。
+
+        这三个常量是用 Node 的 crypto 算的（密钥取 configs 里的开发默认值），
+        拼接顺序或字段标签改一位就会失败。同样的向量也钉在
+        server-python/tests/test_protocol.py 与 tools/lib/smoke.mjs 里。
+        """
+        dev_key = "scmj-ban-check-dev-key"
+        self.assertEqual(
+            _sign(account="guest_123456", key=dev_key),
+            "72977b2a422916d846f1f8b9bb10528d",
+        )
+        self.assertEqual(
+            _sign(player_id=9, key=dev_key),
+            "e16efd54aaddb8fb2aada5912ca306cd",
+        )
+        self.assertEqual(
+            _sign(account="guest_123456", player_id=9, key=dev_key),
+            "d4cb51c910c644dc4b29a94a62dded4b",
+        )
+
+    # ------------------------------------------------------------ 认证
+
+    def test_rejects_missing_sign(self) -> None:
+        """没有签名一律拒绝（10003），不放行。"""
+        response = self.check(account="guest_alpha")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], 10003)
+
+    def test_rejects_wrong_sign(self) -> None:
+        """签名不对（例如两边密钥不一致）返回 10003。"""
+        response = self.check(account="guest_alpha", sign="0" * 32)
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], 10003)
+
+    def test_rejects_sign_computed_with_other_key(self) -> None:
+        """用别的密钥算出来的签名同样无效。"""
+        response = self.check(account="guest_alpha", sign=_sign(account="guest_alpha", key="other"))
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], 10003)
+
+    def test_refuses_when_key_not_configured(self) -> None:
+        """平台没配密钥时**拒绝服务**，绝不能变成人人可用的公开查询。"""
+        with override_settings(PLATFORM_INTERNAL_KEY=""):
+            response = self.check(account="guest_alpha", sign="0" * 32)
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["code"], 10500)
+
+    def test_does_not_require_jwt(self) -> None:
+        """内部接口不需要管理平台登录态（调用方是游戏服进程）。"""
+        response = self.check(account="guest_alpha", sign=_sign(account="guest_alpha"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["code"], 0)
+
+    # ------------------------------------------------------------ 参数
+
+    def test_requires_account_or_player_id(self) -> None:
+        """两个身份参数都不给 → 10001。"""
+        response = self.check(sign=_sign(account=""))
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], 10001)
+
+    def test_rejects_non_numeric_player_id(self) -> None:
+        """player_id 必须是数字。"""
+        response = self.check(player_id="abc", sign=_sign(account=""))
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], 10001)
+
+    # ------------------------------------------------------------ 查询
+
+    def test_by_account_not_banned(self) -> None:
+        """没被封的玩家：known=true、banned=false。"""
+        data = self.check(account="guest_alpha", sign=_sign(account="guest_alpha")).json()["data"]
+        self.assertTrue(data["known"])
+        self.assertEqual(data["player_id"], 1001)
+        self.assertFalse(data["banned"])
+        self.assertEqual(data["reason"], "")
+        self.assertIsNone(data["expires_at"])
+
+    def test_by_account_banned(self) -> None:
+        """被封的玩家：banned=true，并带上原因与自动解封时间。"""
+        self.ban(1001, reason="使用外挂", duration_hours=48)
+        data = self.check(account="guest_alpha", sign=_sign(account="guest_alpha")).json()["data"]
+        self.assertTrue(data["banned"])
+        self.assertEqual(data["player_id"], 1001)
+        self.assertEqual(data["reason"], "使用外挂")
+        self.assertIsNotNone(data["expires_at"])
+
+    def test_by_player_id(self) -> None:
+        """游戏服是从 token 里拿 userId 的，所以按 ID 查也必须可用。"""
+        self.ban(1003, reason="恶意挂机")
+        data = self.check(player_id=1003, sign=_sign(player_id=1003)).json()["data"]
+        self.assertTrue(data["banned"])
+        self.assertEqual(data["player_id"], 1003)
+        self.assertEqual(data["reason"], "恶意挂机")
+
+    def test_unknown_account(self) -> None:
+        """查不到账号：known=false、banned=false（游戏服据此放行）。"""
+        data = self.check(account="no-such-account", sign=_sign(account="no-such-account")).json()["data"]
+        self.assertFalse(data["known"])
+        self.assertIsNone(data["player_id"])
+        self.assertFalse(data["banned"])
+
+    def test_unbanned_after_unban(self) -> None:
+        """解封之后立刻回答 banned=false，且不回带历史原因。"""
+        self.ban(1001, reason="误封")
+        self.unban(1001, reason="申诉通过")
+        data = self.check(account="guest_alpha", sign=_sign(account="guest_alpha")).json()["data"]
+        self.assertFalse(data["banned"])
+        self.assertEqual(data["reason"], "")
+
+    def test_expired_ban_is_not_banned(self) -> None:
+        """限时封禁到期后自动回答"没封"（不需要定时任务）。"""
+        PlayerBan.objects.create(
+            player_id=1002,
+            account="guest_beta",
+            action=PlayerBan.Action.BAN,
+            reason="历史限时封禁",
+            expires_at=timezone.now() - timedelta(hours=1),
+        )
+        data = self.check(account="guest_beta", sign=_sign(account="guest_beta")).json()["data"]
+        self.assertFalse(data["banned"])
+
+    def test_reads_player_db_read_only(self) -> None:
+        """按账号查会回查玩家库，但那也必须全是 SELECT。"""
+        with CaptureQueriesContext(connections[PLAYER_DB]) as captured:
+            self.check(account="guest_alpha", sign=_sign(account="guest_alpha"))
+        self.assertGreater(len(captured.captured_queries), 0)
+        for query in captured.captured_queries:
+            self.assertTrue(str(query["sql"]).strip().lower().startswith("select"), query["sql"])
