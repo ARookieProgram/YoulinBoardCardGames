@@ -44,6 +44,8 @@ export const ErrorCode = {
   PLAYER_NOT_BANNED: 12003,
   /** 玩家数据源不可用（玩家库连不上）。 */
   PLAYER_SOURCE_UNAVAILABLE: 12004,
+  /** 房间不存在或已结束（房间打完 / 解散后会从库里删掉）。 */
+  ROOM_NOT_FOUND: 13001,
 } as const
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -211,5 +213,119 @@ export interface PlayerReservedResult extends PageResult<never> {
   source: string
   /** 给运营看的一句话说明。 */
   message: string
+}
+
+// ---------------------------------------------------------------- 房间管理
+
+/**
+ * 房间状态（后端 `player_source` 由**座位占用**推导）。
+ *
+ * `playing` 只表示"四个座位都有人"——房间还在 `t_rooms` 里就意味着它还没被销毁。
+ */
+export type RoomState = 'waiting' | 'playing'
+
+/** 房间里的一个座位（`t_rooms` 的 `user_idN` / `user_nameN` / `user_scoreN`）。 */
+export interface RoomSeat {
+  seat_index: number
+  /** 空座位是 `0`。 */
+  player_id: number
+  /** 昵称（后端已从 Base64 解码）。 */
+  name: string
+  icon: string
+  score: number
+  /** `player_id > 0`。 */
+  occupied: boolean
+}
+
+/** 房间配置：`t_rooms.base_info` 的 JSON，后端已转成固定键。 */
+export interface RoomConf {
+  /** 玩法标识（`conf.type` **没有**白名单，客户端传什么就是什么）。 */
+  type: string
+  /** 底分。 */
+  base_score: number
+  /** 最大番数。 */
+  max_fan: number
+  /** 局数上限。 */
+  max_games: number
+  /** 建房者的玩家 ID。 */
+  creator: number
+  /** 自摸加成：`0` 加底 / `1` 加番 / `2` 不加。 */
+  zimo: number
+  /** 点杠花：`0` 点炮 / `1` 自摸。 */
+  dianganghua: number
+  jiangdui: boolean
+  /** 换三张。 */
+  hsz: boolean
+  menqing: boolean
+  tiandihu: boolean
+}
+
+/** 列表与详情共用的房间形状（后端 `room_payload`）。 */
+export interface RoomSummary {
+  /** 6 位房间号（`t_rooms.id`）。 */
+  room_id: string
+  /** 房间 uuid（主键，排查问题时游戏服日志里是它）。 */
+  uuid: string
+  type: string
+  /** 玩法名（与大厅里玩家看到的一致，未知玩法回退成原始标识）。 */
+  type_label: string
+  state: RoomState
+  seat_count: number
+  occupied_seats: number
+  /** 创建时间（Unix 秒）。 */
+  create_time: number
+  /** `YYYY-MM-DD HH:mm:ss`（后端已按 Asia/Shanghai 格式化）。 */
+  created_at: string
+  /** 已打局数。 */
+  num_of_turns: number
+  next_button: number
+  /** 房间所在游戏服的地址。 */
+  ip: string
+  port: number
+  conf: RoomConf
+  seats: RoomSeat[]
+}
+
+/**
+ * 预留的运维入口说明。
+ *
+ * 后端用"同一份文案"同时给出详情里的 `actions` 与预留接口的返回，
+ * 所以前端只认 `reserved` / `available` / `message` / `source` 这几个键。
+ */
+export interface RoomReservedAction {
+  /** 恒为 `true`：该动作尚未接入。 */
+  reserved: true
+  /** 恒为 `false`：现在调用它不会真的动房间。 */
+  available: boolean
+  /** 功能标识：目前只有 `dissolve`。 */
+  feature: string
+  /** 计划怎么实现（含需要游戏服配合的说明）。 */
+  source: string
+  /** 给运营看的一句话说明。 */
+  message: string
+}
+
+/** 房间详情：列表行 + 预留入口的可用性。 */
+export interface RoomDetail extends RoomSummary {
+  actions: {
+    /** 强制解散（预留）。 */
+    dissolve: RoomReservedAction
+  }
+}
+
+/** 强制解散（预留）的返回。 */
+export interface RoomDissolveResult extends RoomReservedAction {
+  room_id: string
+  uuid: string
+}
+
+/** 房间列表页顶部的概览数字。 */
+export interface RoomsOverview {
+  total_rooms: number
+  /** 四个座位都有人。 */
+  playing_rooms: number
+  /** 还有空位。 */
+  waiting_rooms: number
+  created_last_24h: number
 }
 

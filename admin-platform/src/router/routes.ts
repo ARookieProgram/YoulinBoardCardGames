@@ -44,14 +44,16 @@ export const routes: RouteRecordRaw[] = [
         component: () => import('@/views/PlayerListView.vue'),
         meta: { title: '玩家管理', icon: 'User' },
       },
-      // 以下页面本期只放占位内容，接口接入后替换组件即可。
-      // 它们已经带上了登录守卫与后台布局，不需要再改路由结构。
+      // 房间管理已接入真实接口：只读监控存活房间（列表 / 概览 / 详情），
+      // 并预留了"强制解散"这个运维入口（见 RoomListView）。
       {
         path: 'rooms',
         name: 'rooms',
-        component: () => import('@/views/PlaceholderView.vue'),
+        component: () => import('@/views/RoomListView.vue'),
         meta: { title: '房间管理', icon: 'Grid' },
       },
+      // 以下页面本期只放占位内容，接口接入后替换组件即可。
+      // 它们已经带上了登录守卫与后台布局，不需要再改路由结构。
       {
         path: 'games',
         name: 'games',
