@@ -122,17 +122,24 @@ export async function runSmoke(root) {
   const mjutilsLoad = loadServerModule(root, "game_server/mjutils");
   const cryptoLoad = loadServerModule(root, "utils/crypto");
   const httpLoad = loadServerModule(root, "utils/http");
-  if (mjutilsLoad.error !== undefined || cryptoLoad.error !== undefined || httpLoad.error !== undefined) {
+  const bancheckLoad = loadServerModule(root, "utils/bancheck");
+  if (
+    mjutilsLoad.error !== undefined ||
+    cryptoLoad.error !== undefined ||
+    httpLoad.error !== undefined ||
+    bancheckLoad.error !== undefined
+  ) {
     return {
       ok: false,
       checks: [],
-      error: `could not load pure server modules: ${[mjutilsLoad.error, cryptoLoad.error, httpLoad.error].filter(Boolean).join(" | ")}`,
+      error: `could not load pure server modules: ${[mjutilsLoad.error, cryptoLoad.error, httpLoad.error, bancheckLoad.error].filter(Boolean).join(" | ")}`,
     };
   }
 
   const mjutils = mjutilsLoad.module;
   const crypto = cryptoLoad.module;
   const http = httpLoad.module;
+  const bancheck = bancheckLoad.module;
 
   // Callers always pass a complete 13-tile hand, so the waits are exactly the
   // 14th tiles that would complete it.
@@ -252,6 +259,69 @@ export async function runSmoke(root) {
     "queryInt is NaN when the parameter is absent (matches parseInt)",
     Number.isNaN(http.queryInt(fakeRequest, "nope")),
     `got ${http.queryInt(fakeRequest, "nope")}`,
+  );
+
+  // 8. 封禁校验的签名。这是**游戏服与平台之间唯一的运行时契约**：签名串由 Node、
+  //    Python、platform_server 三处各写一遍，只有一个字面量向量能钉住它们一致。
+  //    向量与 server-python/tests/test_protocol.py、platform_server/tests/test_players.py
+  //    里的常量相同（密钥取 configs 的开发默认值）。
+  const banKey = "scmj-ban-check-dev-key";
+  assert(
+    "bancheck sign (by account) matches the cross-implementation vector",
+    bancheck.buildSign("guest_123456", null, banKey) === "72977b2a422916d846f1f8b9bb10528d",
+    `got ${bancheck.buildSign("guest_123456", null, banKey)}`,
+  );
+  assert(
+    "bancheck sign (by player_id) matches the cross-implementation vector",
+    bancheck.buildSign(null, 9, banKey) === "e16efd54aaddb8fb2aada5912ca306cd",
+    `got ${bancheck.buildSign(null, 9, banKey)}`,
+  );
+  assert(
+    "bancheck sign (both fields) matches the cross-implementation vector",
+    bancheck.buildSign("guest_123456", 9, banKey) === "d4cb51c910c644dc4b29a94a62dded4b",
+    `got ${bancheck.buildSign("guest_123456", 9, banKey)}`,
+  );
+  assert(
+    "bancheck field labels keep the two parameters from aliasing",
+    bancheck.buildSign("9", null, banKey) !== bancheck.buildSign(null, 9, banKey),
+  );
+  assert(
+    "bancheck endpoint path matches platform_server's route",
+    bancheck.BAN_CHECK_PATH === "/api/internal/players/ban-check/",
+    `got ${bancheck.BAN_CHECK_PATH}`,
+  );
+  //    fail-open 的真实路径：未启用时**不发任何请求**，直接回调"不知道 = 放行"。
+  bancheck.init({
+    ENABLE: false,
+    HOST: "127.0.0.1",
+    PORT: 1,
+    PRI_KEY: banKey,
+    TIMEOUT_MS: 10,
+    CACHE_TTL_MS: 10,
+  });
+  const disabledStatus = await new Promise((resolve) => bancheck.checkAccount("guest_1", resolve));
+  bancheck.reset();
+  assert(
+    "bancheck is fail-open: disabled config answers unknown (allow, no request)",
+    disabledStatus.known === false && disabledStatus.banned === false,
+    `got ${JSON.stringify(disabledStatus)}`,
+  );
+  assert(
+    "bancheck message tells the player the reason and the expiry",
+    bancheck.banMessage({
+      known: true,
+      banned: true,
+      reason: "使用外挂",
+      expiresAt: "2026-01-01 00:00:00",
+      playerId: 9,
+    }) === "账号已被封禁；原因：使用外挂；自动解封时间：2026-01-01 00:00:00。如有疑问请联系客服。",
+    bancheck.banMessage({
+      known: true,
+      banned: true,
+      reason: "使用外挂",
+      expiresAt: "2026-01-01 00:00:00",
+      playerId: 9,
+    }),
   );
 
   return { ok: results.every((entry) => entry.ok), checks: results };

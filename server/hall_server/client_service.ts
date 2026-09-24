@@ -1,6 +1,7 @@
 import express from "express";
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 
+import * as bancheck from "../utils/bancheck";
 import * as crypto from "../utils/crypto";
 import * as db from "../utils/db";
 import * as http from "../utils/http";
@@ -83,6 +84,30 @@ function check_account(req: ClientRequest, res: Response): boolean {
 	return true;
 }
 
+/** 账号被封禁时的业务码（客户端 `UserMgr.onLogin` 认这个码弹提示）。 */
+var ERR_ACCOUNT_BANNED = 3;
+
+/**
+ * 封禁守卫：挂在需要拦的客户端路由与处理器之间。
+ *
+ * 被封的请求直接回 `ERR_ACCOUNT_BANNED(3)`，不再进入业务逻辑；没被封（或问不到
+ * 管理平台 → **fail-open**）就 `next()`。数据来自 `utils/bancheck`（管理平台的
+ * 内部只读接口），本地按 TTL 缓存，所以正常登录不会每次都打平台。
+ *
+ * 位置说明：它排在处理器的 `check_account()` **之前**，所以参数不全时拿到的是空
+ * account —— `bancheck` 按"不知道"放行，仍由处理器回 errcode 1，行为与迁移前一致。
+ */
+function banGuard(req: Request, res: Response, next: NextFunction): void {
+	var account = http.queryString(req,"account");
+	bancheck.checkAccount(account,function(status: bancheck.BanStatus){
+		if(status.banned){
+			http.send(res,ERR_ACCOUNT_BANNED,bancheck.banMessage(status));
+			return;
+		}
+		next();
+	});
+}
+
 //设置跨域访问
 app.all('*', function(req: Request, res: Response, next) {
 	res.header("Access-Control-Allow-Origin", "*");
@@ -93,7 +118,7 @@ app.all('*', function(req: Request, res: Response, next) {
 	next();
 });
 
-app.get('/login',function(req: Request,res: Response){
+app.get('/login',banGuard,function(req: Request,res: Response){
 	if(!check_account(req as ClientRequest,res)){
 		return;
 	}
@@ -176,7 +201,7 @@ app.get('/create_user',function(req: Request,res: Response){
 	});
 });
 
-app.get('/create_private_room',function(req: Request,res: Response){
+app.get('/create_private_room',banGuard,function(req: Request,res: Response){
 	//验证参数合法性
 	var data = req.query as ClientQuery;
 	//验证玩家身份
@@ -231,7 +256,7 @@ app.get('/create_private_room',function(req: Request,res: Response){
 	});
 });
 
-app.get('/enter_private_room',function(req: Request,res: Response){
+app.get('/enter_private_room',banGuard,function(req: Request,res: Response){
 	var data = req.query as ClientQuery;
 	var roomId = http.queryString(req,"roomid");
 	if(roomId == null){

@@ -1,5 +1,6 @@
 import type {
 	AccountServerConfig,
+	BanCheckConfig,
 	GameServerConfig,
 	HallServerConfig,
 	MysqlConfig,
@@ -12,6 +13,15 @@ var HALL_ROOM_PORT = 9002;
 
 var ACCOUNT_PRI_KEY = "^&*#$%()@";
 var ROOM_PRI_KEY = "~!@#$(*&^%$&";
+
+//封禁校验的共享密钥。**必须与 platform_server 的 PLATFORM_INTERNAL_KEY 一致**：
+//不一致时游戏服是 fail-open（照常放行）并打警告日志，表现为"封禁静默失效"。
+//生产必须换成随机长串，并同时更新平台侧的环境变量。
+var BAN_CHECK_PRI_KEY = "scmj-ban-check-dev-key";
+
+//管理平台（platform_server）的地址——封禁校验就打在它身上。
+var PLATFORM_IP = "127.0.0.1";
+var PLATFORM_PORT = 8000;
 
 var LOCAL_IP = 'localhost';
 
@@ -76,6 +86,24 @@ export function game_server():GameServerConfig{
 	};
 };
 
+//封禁校验配置（大厅服与游戏服都用它）
+export function ban_check():BanCheckConfig{
+	//游戏服在登录 / 进房前调管理平台的内部只读接口，问这个玩家有没有被封：
+	//  * PRI_KEY 与 platform_server 的 PLATFORM_INTERNAL_KEY 必须逐字一致；
+	//  * 超时 / 连不上 / 平台报错一律 fail-open 放行并打警告日志——
+	//    管理后台挂掉不该让全体玩家登不上游戏；
+	//  * CACHE_TTL_MS 决定"后台点了封禁"到"玩家被拦下"的最大延迟。
+	//平台没部署时把 ENABLE 设为 false，连 HTTP 请求都不会发。
+	return {
+		ENABLE:true,
+		HOST:PLATFORM_IP,
+		PORT:PLATFORM_PORT,
+		PRI_KEY:BAN_CHECK_PRI_KEY,
+		TIMEOUT_MS:1000,
+		CACHE_TTL_MS:30000,
+	};
+};
+
 // 编译期自检：本文件的导出面必须满足 types/config.ts 的 ServerConfigs 契约
 // （字段名或类型不一致时，下面这行会直接报"不满足约束"）。
 // 只存在于类型空间，编译后不产生任何运行时代码。
@@ -85,4 +113,5 @@ type _ExportsMatchServerConfigs = AssertExtends<{
 	account_server:typeof account_server;
 	hall_server:typeof hall_server;
 	game_server:typeof game_server;
+	ban_check:typeof ban_check;
 },ServerConfigs>;
