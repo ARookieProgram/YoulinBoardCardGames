@@ -7,6 +7,9 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# 本机 npm 缓存（~/.npm 权限异常时用 `npm install --cache ./.npm-cache` 兜底）
+.npm-cache
+
 node_modules
 .DS_Store
 dist

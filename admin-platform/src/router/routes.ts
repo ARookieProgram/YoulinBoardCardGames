@@ -1,0 +1,73 @@
+/**
+ * 路由表。
+ *
+ * 单独成模块（而不是写在 `router/index.ts` 里）的原因：侧边菜单
+ * （`utils/menu.ts`）需要**读同一份路由表**来生成菜单项，
+ * 如果路由定义和守卫写在一起，菜单就得反向 import 路由器，形成环形依赖。
+ *
+ * 新增页面时只改这里即可——菜单、标题、守卫都会自动跟上。
+ */
+
+import type { RouteRecordRaw } from 'vue-router'
+
+import AdminLayout from '@/layouts/AdminLayout.vue'
+
+/** 登录页路径。 */
+export const LOGIN_PATH = '/login'
+
+/** 登录后的默认落地页。 */
+export const HOME_PATH = '/dashboard'
+
+export const routes: RouteRecordRaw[] = [
+  {
+    path: LOGIN_PATH,
+    name: 'login',
+    component: () => import('@/views/LoginView.vue'),
+    meta: { public: true, title: '登录' },
+  },
+  {
+    path: '/',
+    component: AdminLayout,
+    redirect: HOME_PATH,
+    children: [
+      {
+        path: 'dashboard',
+        name: 'dashboard',
+        component: () => import('@/views/DashboardView.vue'),
+        meta: { title: '控制台', icon: 'HomeFilled' },
+      },
+      // 以下页面本期只放占位内容，接口接入后替换组件即可。
+      // 它们已经带上了登录守卫与后台布局，不需要再改路由结构。
+      {
+        path: 'players',
+        name: 'players',
+        component: () => import('@/views/PlaceholderView.vue'),
+        meta: { title: '玩家管理', icon: 'User' },
+      },
+      {
+        path: 'rooms',
+        name: 'rooms',
+        component: () => import('@/views/PlaceholderView.vue'),
+        meta: { title: '房间管理', icon: 'Grid' },
+      },
+      {
+        path: 'games',
+        name: 'games',
+        component: () => import('@/views/PlaceholderView.vue'),
+        meta: { title: '对局记录', icon: 'Tickets' },
+      },
+      {
+        path: 'system/admins',
+        name: 'admins',
+        component: () => import('@/views/PlaceholderView.vue'),
+        meta: { title: '管理员账号', icon: 'Setting', requiresSuperAdmin: true },
+      },
+    ],
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'not-found',
+    component: () => import('@/views/NotFoundView.vue'),
+    meta: { public: true, title: '页面不存在' },
+  },
+]
