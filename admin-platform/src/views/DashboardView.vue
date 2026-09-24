@@ -27,7 +27,7 @@ const profile = computed(() => [
 /** 后续要接的模块，标出本期是否已完成。 */
 const roadmap = [
   { title: '登录与账号体系', description: '管理员登录、JWT 续期、退出、路由守卫', done: true },
-  { title: '玩家管理', description: '查询玩家、调整金币/宝石、封禁解封', done: false },
+  { title: '玩家管理', description: '查询玩家、展示房卡/金币、封禁解封，并预留对局与充值记录入口', done: true },
   { title: '房间管理', description: '查看在线房间、强制解散', done: false },
   { title: '对局记录', description: '战绩查询、异常对局审计', done: false },
   { title: '管理员账号', description: '增删改管理平台账号、分配角色（仅超级管理员）', done: false },
@@ -56,7 +56,7 @@ const roadmap = [
       <template #header>
         <div class="card-header">
           <span>平台建设进度</span>
-          <el-text size="small" type="info">本期交付登录闭环</el-text>
+          <el-text size="small" type="info">本期交付登录闭环与玩家管理</el-text>
         </div>
       </template>
 

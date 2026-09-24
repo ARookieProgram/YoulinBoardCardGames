@@ -36,14 +36,16 @@ export const routes: RouteRecordRaw[] = [
         component: () => import('@/views/DashboardView.vue'),
         meta: { title: '控制台', icon: 'HomeFilled' },
       },
-      // 以下页面本期只放占位内容，接口接入后替换组件即可。
-      // 它们已经带上了登录守卫与后台布局，不需要再改路由结构。
+      // 玩家管理已接入真实接口：查询 / 房卡展示 / 封禁解封，
+      // 并预留了"对局记录""充值记录"两个查询入口（见 PlayerListView）。
       {
         path: 'players',
         name: 'players',
-        component: () => import('@/views/PlaceholderView.vue'),
+        component: () => import('@/views/PlayerListView.vue'),
         meta: { title: '玩家管理', icon: 'User' },
       },
+      // 以下页面本期只放占位内容，接口接入后替换组件即可。
+      // 它们已经带上了登录守卫与后台布局，不需要再改路由结构。
       {
         path: 'rooms',
         name: 'rooms',
