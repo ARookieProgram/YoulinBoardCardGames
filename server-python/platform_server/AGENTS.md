@@ -84,6 +84,9 @@ platform_server/
 ├─ config/                       工程配置（settings 是唯一配置来源）
 ├─ apps/common/                  响应外壳 / 错误码 / 异常 / 分页 / IP
 ├─ apps/accounts/                管理平台账号体系（模型 / 序列化 / 视图 / 权限）
+│                                 + **管理员账号管理**（`urls_admin.py` → `/api/admins/`：
+│                                 列表 / 新建 / 改资料与角色 / 启停 / 重置口令 / 删除，
+│                                 除 `me/password/` 外只对超级管理员开放）
 ├─ apps/players/                 玩家管理（只读玩家库 player_source：t_users + t_rooms
 │                                 + t_games / t_games_archive；封禁流水 PlayerBan
 │                                 + 给游戏服的内部校验 internal.py）
@@ -139,10 +142,16 @@ AssertionError: .accepted_renderer not set on Response
 `apps/accounts/error_codes.py`、`apps/players/error_codes.py`、
 `apps/rooms/error_codes.py` 都只是转出口，不是第二份定义。
 新增登录相关码加在 `11xxx` 段，玩家管理相关码加在 `12xxx` 段，
-房间管理相关码加在 `13xxx` 段，对局记录相关码加在 `14xxx` 段；
+房间管理相关码加在 `13xxx` 段，对局记录相关码加在 `14xxx` 段，
+**管理员账号管理相关码加在 `15xxx` 段**；
 前端对应常量在 `repo:admin-platform/src/api/types.ts` 的 `ErrorCode`，要同步改。
 内部接口（`/api/internal/`）的签名失败复用通用 `10003`、未配置密钥用 `10500`，
 没有单开新码——它们不是给玩家看的业务错误。
+
+**管理员账号管理（`/api/admins/`）的码不要再挤进 `11xxx`**：那一档是"登录这件事失败了"
+（前端跳登录页 / 提示重新输入），而 `15xxx` 是"登录之后操作被拒绝了"（前端只弹一句错误）。
+两条自锁护栏 `15004`（不能对自己动手）与 `15005`（不能动最后一个启用中的超级管理员）
+是这块的核心语义，新增端点时**不要绕过**它们（判定顺序见 `views_admin.py` 的模块文档）。
 
 **"玩家库连不上"只有一个码**（`12004`）：房间数据、对局数据与玩家数据来自同一条
 只读数据源，运维处置方式相同，所以房间侧与对局侧都**不要**再各开一个
@@ -184,13 +193,15 @@ AssertionError: .accepted_renderer not set on Response
 ```bash
 cd server-python/platform_server
 
-# 1) 接口测试（不需要 MySQL）。179 项（登录 29 + 玩家管理 56 + 房间管理 32 + 对局记录 49 + 建库脚本自检 13）。
+# 1) 接口测试（不需要 MySQL）。259 项（登录 29 + 管理员账号 80 + 玩家管理 56
+#    + 房间管理 32 + 对局记录 49 + 建库脚本自检 13）。
 PLATFORM_DB_ENGINE=sqlite ../.venv/bin/python manage.py test
 
 # 1b) 建库 SQL 是否与迁移一致（改了模型必跑）
 ./scripts/check_sql_fresh.sh
 
-# 2) 真实 HTTP 端到端。93 项（登录 24 + 玩家管理 23 + 内部校验接口 10 + 房间管理 16 + 对局记录 20）。
+# 2) 真实 HTTP 端到端。128 项（登录 24 + 管理员账号 35 + 玩家管理 23
+#    + 内部校验接口 10 + 房间管理 16 + 对局记录 20）。
 #    启停一律用 ./scripts/run.sh（等价于 runserver --noreload + 健康检查）：
 ./scripts/run.sh                       # 启动（等健康检查通过）
 ./scripts/e2e_login_check.sh           # 打真实接口

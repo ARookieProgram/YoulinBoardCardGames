@@ -11,13 +11,17 @@
 
 ## 1. 本期范围
 
-已交付**登录闭环 + 后台骨架 + 玩家管理 + 房间管理 + 对局记录**：
+已交付**登录闭环 + 后台骨架 + 玩家管理 + 房间管理 + 对局记录 + 管理员账号**：
 
 * 登录页（表单校验、错误提示、回车提交、后端可达性探测）；
 * 登录态管理（Pinia store + localStorage 持久化）；
 * 请求层（axios 拦截器：拆响应外壳 + **401 自动续期并重放原请求**）；
 * 路由守卫（未登录跳登录页、刷新页面恢复登录态、角色不足挡回控制台）；
 * 后台布局（侧边菜单 + 顶栏 + 退出登录 + **修改自己的密码**）；
+* **管理员账号管理**（仅超级管理员）：查询 / 新建 / 改资料与角色 / 启用停用 /
+  重置他人口令 / 删除；两条自锁护栏（不能对自己动手、不能动最后一个启用中的
+  超级管理员）**由后端判定**，前端置灰只是提示，见
+  `server-python/platform_server/README.md` §6.8；
 * **玩家管理**：查询 / 房卡展示 / 封禁解封；详情抽屉的「对局记录」Tab 展示该玩家
   最近 10 场的房间战绩（可跳转到对局记录页），「充值记录」Tab 仍是预留入口；
 * **房间管理**：只读监控存活房间（列表 / 概览 / 详情：配置、四个座位、所在游戏服），
@@ -97,8 +101,9 @@ src/
 │   ├─ types.ts            后端契约类型 + 业务错误码 ErrorCode
 │   ├─ token.ts            令牌的 localStorage 读写（无依赖，避免循环引用）
 │   ├─ errors.ts           ApiError（业务失败）/ NetworkError（网络层失败）
-│   ├─ client.ts           axios 实例 + 拆外壳 + 401 自动续期
+│   ├─ client.ts           axios 实例 + 拆外壳 + 401 自动续期（get/post/patch/del）
 │   ├─ auth.ts             登录 / 刷新 / me / 退出 / 健康检查
+│   ├─ admins.ts           管理员账号接口（列表 / 概览 / 新建 / 改资料 / 状态 / 口令）
 │   ├─ players.ts          玩家管理接口（列表 / 详情 / 封禁解封 / 预留的充值记录）
 │   ├─ rooms.ts            房间管理接口（列表 / 概览 / 详情 / 预留的强制解散）
 │   └─ games.ts            对局记录接口（列表 / 概览 / 房间对局 / 单局出牌记录 / 玩家战绩）
@@ -107,13 +112,14 @@ src/
 │   ├─ routes.ts           路由表（菜单也从这里派生）
 │   ├─ meta.d.ts           RouteMeta 类型扩展
 │   └─ index.ts            路由器 + 登录守卫 + 令牌失效监听
-├─ layouts/AdminLayout.vue 后台骨架（侧边菜单 / 顶栏 / 内容区）
+├─ layouts/AdminLayout.vue 后台骨架（侧边菜单 / 顶栏 / 内容区 / 修改密码入口）
 ├─ views/                  LoginView / DashboardView / PlayerListView / RoomListView
-│                          / GameListView / NotFoundView
+│                          / GameListView / AdminListView / NotFoundView
 ├─ components/             PlayerDetailDrawer.vue / RoomDetailDrawer.vue
 │                          GameDetailDrawer.vue（单局出牌记录）
 │                          RoomGamesDrawer.vue（一个房间的全部对局）
 │                          PlayerGamesTable.vue（玩家战绩，玩家抽屉与对局页共用）
+│                          ChangePasswordDialog.vue（改自己的口令，顶栏入口）
 ├─ utils/                  menu.ts（由路由表生成菜单）、format.ts、
 │                          room.ts（房间的展示口径：玩法/自摸/点杠花的中文名等）、
 │                          game.ts（对局的展示口径：来源/身份标签、牌面配色等）
@@ -133,6 +139,8 @@ import type { AdminUser } from '@/api/types'
 const me = await get<AdminUser>('auth/me/')          // 直接是 AdminUser
 ```
 
+`client.ts` 导出四个助手：`get` / `post` / `patch`（局部更新，管理员改资料用）/
+`del`（删除，管理员删除用），参数与返回值口径完全一致。
 
 失败时抛的异常：
 

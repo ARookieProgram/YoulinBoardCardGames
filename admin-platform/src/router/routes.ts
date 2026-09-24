@@ -60,12 +60,14 @@ export const routes: RouteRecordRaw[] = [
         component: () => import('@/views/GameListView.vue'),
         meta: { title: '对局记录', icon: 'Tickets' },
       },
-      // 以下页面本期只放占位内容，接口接入后替换组件即可。
-      // 它们已经带上了登录守卫与后台布局，不需要再改路由结构。
+      // 管理员账号管理已接入真实接口：查询 / 新建 / 改资料与角色 / 启用停用 /
+      // 重置口令 / 删除（见 AdminListView 与 api/admins.ts）。
+      // 该页**只对超级管理员开放**：前端靠 requiresSuperAdmin 隐藏菜单与挡路由，
+      // 后端 `/api/admins/` 也只认 IsSuperAdmin（前端置灰不是防线）。
       {
         path: 'system/admins',
         name: 'admins',
-        component: () => import('@/views/PlaceholderView.vue'),
+        component: () => import('@/views/AdminListView.vue'),
         meta: { title: '管理员账号', icon: 'Setting', requiresSuperAdmin: true },
       },
     ],

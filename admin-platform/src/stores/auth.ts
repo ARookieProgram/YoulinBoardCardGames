@@ -38,15 +38,36 @@ export const useAuthStore = defineStore('auth', () => {
     () => admin.value?.display_name || admin.value?.username || '未登录',
   )
 
-  /** 角色，未登录时为 `null`。 */
+  /**
+   * **权限口径**的角色（后端 `effective_role`）。
+   *
+   * `is_superuser=true` 的历史行一律算超级管理员，这时 `effective_role` 是
+   * `super_admin` 而原始 `role` 可能还停在旧值。权限判断必须用这个字段，
+   * 否则会出现"后端放行、前端把菜单藏了"的不一致。
+   */
+  const effectiveRole = computed(() => admin.value?.effective_role ?? null)
+
+  /** 原始角色字段，未登录时为 `null`（仅用于展示"这一行原本是什么"）。 */
   const role = computed(() => admin.value?.role ?? null)
 
-  /** 是否超级管理员。 */
-  const isSuperAdmin = computed(() => admin.value?.role === 'super_admin')
+  /** 角色展示名，按**权限口径**给出（列表页 / 顶栏 / 控制台共用）。 */
+  const roleDisplay = computed(() => {
+    const current = admin.value
+    if (!current) return '未知角色'
+    const labels: Record<AdminUser['effective_role'], string> = {
+      operator: '运营',
+      admin: '管理员',
+      super_admin: '超级管理员',
+    }
+    return labels[current.effective_role] ?? current.role_display
+  })
 
-  /** 是否管理员及以上。 */
+  /** 是否超级管理员（**权限口径**，与后端 `IsSuperAdmin` 一致）。 */
+  const isSuperAdmin = computed(() => effectiveRole.value === 'super_admin')
+
+  /** 是否管理员及以上（**权限口径**，与后端 `IsAdminOrAbove` 一致）。 */
   const isAdminOrAbove = computed(
-    () => admin.value?.role === 'admin' || admin.value?.role === 'super_admin',
+    () => effectiveRole.value === 'admin' || effectiveRole.value === 'super_admin',
   )
 
   // ---------------------------------------------------------------- actions
@@ -132,6 +153,8 @@ export const useAuthStore = defineStore('auth', () => {
     isLoggedIn,
     displayName,
     role,
+    effectiveRole,
+    roleDisplay,
     isSuperAdmin,
     isAdminOrAbove,
     // actions

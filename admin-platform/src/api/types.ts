@@ -48,6 +48,18 @@ export const ErrorCode = {
   ROOM_NOT_FOUND: 13001,
   /** 对局记录不存在（每结束一局才写库；还没打完 / 从未开局时查不到）。 */
   GAME_NOT_FOUND: 14001,
+  /** 管理员不存在（刚被另一位超级管理员删掉时会遇到）。 */
+  ADMIN_NOT_FOUND: 15001,
+  /** 管理员账号名已被占用（大小写不敏感判重）。 */
+  ADMIN_USERNAME_TAKEN: 15002,
+  /** 邮箱已被其他管理员占用。 */
+  ADMIN_EMAIL_TAKEN: 15003,
+  /** 不能对自己执行该操作（停用 / 删除 / 给自己降级）。 */
+  ADMIN_SELF_OPERATION: 15004,
+  /** 不能停用、删除或降级最后一个启用中的超级管理员。 */
+  ADMIN_LAST_SUPER: 15005,
+  /** 本人改口令时原密码不正确。 */
+  ADMIN_OLD_PASSWORD: 15006,
 } as const
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -69,13 +81,24 @@ export interface AdminUser {
   role: AdminRole
   /** 角色的中文名，直接用于展示。 */
   role_display: string
+  /**
+   * **权限判断用的角色**（后端 `effective_role`）。
+   *
+   * 与 `role` 的区别：`is_superuser=true` 的历史行一律算超级管理员，
+   * 这时 `effective_role` 是 `super_admin`，而 `role` 可能还停在旧值。
+   * 前端判权限用这个字段，展示原始取值用 `role`。
+   */
+  effective_role: AdminRole
   status: AdminStatus
   status_display: string
+  /** 备注（为什么给他开这个号）。 */
+  remark: string
   is_superuser: boolean
   /** `YYYY-MM-DD HH:mm:ss`，从未登录时为 `null`。 */
   last_login: string | null
   last_login_ip: string | null
   created_at: string
+  updated_at: string
 }
 
 /** 登录/刷新的入参。 */
@@ -590,3 +613,74 @@ export interface GamesOverview {
   games_last_24h: number
   rooms_last_24h: number
 }
+
+// ---------------------------------------------------------------- 管理员账号管理
+
+/** 列表页的角色过滤（`all` 来自后端 `ADMIN_ROLE_ALL`）。 */
+export type AdminRoleFilter = 'all' | AdminRole
+
+/** 列表页的状态过滤（`all` 来自后端 `ADMIN_STATUS_ALL`）。 */
+export type AdminStatusFilter = 'all' | AdminStatus
+
+/** 管理员列表页顶部的概览数字。 */
+export interface AdminsOverview {
+  total_admins: number
+  active_admins: number
+  disabled_admins: number
+  /** 按 `effective_role` 口径统计（含 `is_superuser` 的历史行）。 */
+  super_admins: number
+}
+
+/** 新建管理员的入参。新建的账号**一律启用**，所以没有 `status`。 */
+export interface AdminCreatePayload {
+  username: string
+  nickname?: string
+  email: string
+  password: string
+  role: AdminRole
+  remark?: string
+}
+
+/**
+ * 改资料的入参。
+ *
+ * 没有 `username`（账号名不可改）与 `password`（走重置口令接口）；
+ * 状态也不在这里改，走 `setAdminStatus`。
+ */
+export interface AdminUpdatePayload {
+  nickname?: string
+  email?: string
+  role?: AdminRole
+  remark?: string
+}
+
+/** 启用 / 停用的入参。 */
+export interface AdminStatusPayload {
+  status: AdminStatus
+}
+
+/** 超级管理员重置他人口令的入参。 */
+export interface AdminPasswordPayload {
+  new_password: string
+}
+
+/** 本人改口令的入参（必须带原口令）。 */
+export interface SelfPasswordPayload {
+  old_password: string
+  new_password: string
+}
+
+/** 重置口令 / 改口令的返回。 */
+export interface AdminPasswordResult {
+  id: number
+  username: string
+  /** 本次被吊销的 refresh 令牌数；大于 0 表示该账号其它设备需要重新登录。 */
+  revoked_tokens: number
+}
+
+/** 删除管理员的返回。 */
+export interface AdminDeleteResult {
+  id: number
+  username: string
+}
+

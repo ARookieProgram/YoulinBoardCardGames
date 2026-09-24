@@ -3,6 +3,7 @@
 | 前缀 | 归属 |
 | --- | --- |
 | `/api/auth/` | 管理平台登录（本工程） |
+| `/api/admins/` | 管理员账号管理（新建 / 停用 / 重置口令 / 删除，超级管理员专属） |
 | `/api/players/` | 玩家管理（只读玩家库 + 本平台的封禁记录） |
 | `/api/rooms/` | 房间管理（只读玩家库 `t_rooms`，无本平台表） |
 | `/api/games/` | 对局记录（只读玩家库 `t_games` / `t_games_archive`，无本平台表） |
@@ -51,6 +52,9 @@ def health(request: HttpRequest) -> Response:
 
 urlpatterns = [
     path("api/auth/", include("apps.accounts.urls")),
+    # 管理员账号管理：与登录分开挂载（登录在 /api/auth/），
+    # 除 /api/admins/me/password/ 外全部只对超级管理员开放。
+    path("api/admins/", include("apps.accounts.urls_admin")),
     path("api/players/", include("apps.players.urls")),
     path("api/rooms/", include("apps.rooms.urls")),
     path("api/games/", include("apps.games.urls")),

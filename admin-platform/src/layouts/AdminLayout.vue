@@ -4,6 +4,9 @@
  *
  * 只有登录后的页面会套这个布局（登录页在路由表里是独立顶层路由）。
  * 菜单由 `utils/menu.ts` 从路由表派生，角色不足的项自动隐藏。
+ *
+ * 顶栏的账号下拉里有两件事：**改自己的口令**（任何角色都能用，走
+ * `ChangePasswordDialog` → `POST /api/admins/me/password/`）与退出登录。
  */
 
 import { computed, ref } from 'vue'
@@ -13,6 +16,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { buildMenuItems } from '@/utils/menu'
 import { LOGIN_PATH } from '@/router/routes'
+import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -21,15 +25,18 @@ const auth = useAuthStore()
 /** 侧边栏折叠状态（窄屏时手动收起）。 */
 const collapsed = ref(false)
 
+/** 「修改密码」弹窗。 */
+const passwordVisible = ref(false)
+
 /** 当前高亮的菜单项：用路由名，避免 `system/admins` 这类多级路径的匹配问题。 */
 const activeMenu = computed(() => String(route.name ?? ''))
 
 /** 菜单项，按当前角色过滤。 */
 const menuItems = computed(() => buildMenuItems(auth.isSuperAdmin))
 
-/** 顶栏展示的角色标签颜色。 */
+/** 顶栏展示的角色标签颜色（按权限口径的角色上色）。 */
 const roleTagType = computed(() => {
-  switch (auth.role) {
+  switch (auth.effectiveRole) {
     case 'super_admin':
       return 'danger'
     case 'admin':
@@ -61,6 +68,10 @@ async function handleLogout(): Promise<void> {
 async function handleCommand(command: string): Promise<void> {
   if (command === 'logout') {
     await handleLogout()
+    return
+  }
+  if (command === 'password') {
+    passwordVisible.value = true
   }
 }
 </script>
@@ -70,7 +81,7 @@ async function handleCommand(command: string): Promise<void> {
     <!-- 侧边栏 -->
     <el-aside class="admin-aside" :width="collapsed ? '64px' : '220px'">
       <div class="admin-logo">
-        <span class="admin-logo__mark">幼</span>
+        <span class="admin-logo__mark">麒</span>
         <span v-show="!collapsed" class="admin-logo__text">麻将管理平台</span>
       </div>
 
@@ -105,7 +116,7 @@ async function handleCommand(command: string): Promise<void> {
 
         <div class="admin-header__right">
           <el-tag :type="roleTagType" size="small" effect="light">
-            {{ auth.admin?.role_display ?? '未知角色' }}
+            {{ auth.roleDisplay }}
           </el-tag>
 
           <el-dropdown @command="handleCommand">
@@ -120,6 +131,10 @@ async function handleCommand(command: string): Promise<void> {
               <el-dropdown-menu>
                 <el-dropdown-item disabled>
                   {{ auth.admin?.username ?? '' }}
+                </el-dropdown-item>
+                <el-dropdown-item command="password">
+                  <el-icon><Lock /></el-icon>
+                  修改密码
                 </el-dropdown-item>
                 <el-dropdown-item divided command="logout">
                   <el-icon><SwitchButton /></el-icon>
@@ -136,6 +151,9 @@ async function handleCommand(command: string): Promise<void> {
         <RouterView />
       </el-main>
     </el-container>
+
+    <!-- 「修改密码」弹窗（任何角色都能改自己的口令） -->
+    <ChangePasswordDialog v-model="passwordVisible" />
   </el-container>
 </template>
 

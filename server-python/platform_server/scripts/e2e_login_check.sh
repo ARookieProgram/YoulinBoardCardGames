@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 管理平台端到端验收脚本：登录闭环 + 玩家管理 + 房间管理 + 对局记录（本机手工跑，不进门禁）。
+# 管理平台端到端验收脚本：登录闭环 + 玩家管理 + 房间管理 + 对局记录 + 管理员账号
+# （本机手工跑，不进门禁）。
 #
 # 前置：
 #   1) platform_server 已在 127.0.0.1:8000 运行，且已 seed_admin；
@@ -7,13 +8,17 @@
 #      **未被封禁**的玩家，第 11 节的房间断言需要 `t_rooms` 存在，第 12 节的对局断言
 #      需要 `t_games` / `t_games_archive` 存在；没有数据时这三小段会自动跳过并打印提示，
 #      不算失败（SQLite 离线库可以先跑 `manage.py init_player_dev --reset` 造样例）。
-##
+#      第 13 节（管理员账号）**不碰玩家库**，所以永远会跑。
+#
 # 用法：./scripts/e2e_login_check.sh [base_url]
 set -uo pipefail
 
 BASE="${1:-http://127.0.0.1:8000}"
 USERNAME="${E2E_USERNAME:-admin}"
 PASSWORD="${E2E_PASSWORD:-AdminPass!2024}"
+# 第 13 节新建的临时管理员口令（满足 Django 的强度校验）。
+E2E_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-Fj7#quadZebra}"
+E2E_ADMIN_PASSWORD_2="${E2E_ADMIN_PASSWORD_2:-Km3%vaultOtter}"
 
 pass=0
 fail=0
@@ -350,6 +355,134 @@ else
     fi
   fi
 fi
+
+echo "== 13. 管理员账号管理（/api/admins/，只碰平台自己的库）=="
+
+# 这一段会**新建并删除一个临时管理员**（账号名带随机后缀），
+# 跑完之后库里不留东西；不依赖玩家库，任何环境都能跑。
+
+# 13.1 认证与权限下限
+admin_nologin=$(curl -s -w '\n%{http_code}' "$BASE/api/admins/")
+check "无令牌访问管理员列表返回 401" "401" "$(printf '%s' "$admin_nologin" | tail -1)"
+check "无令牌 code=10002" "10002" "$(jq_get "$(printf '%s' "$admin_nologin" | sed '$d')" "['code']")"
+
+admin_overview=$(curl -s "$BASE/api/admins/overview/" -H "Authorization: Bearer $access2")
+check "管理员概览 code=0" "0" "$(jq_get "$admin_overview" "['code']")"
+check "概览带总数与超级管理员数" "yes" \
+  "$(printf '%s' "$admin_overview" | grep -q '"total_admins"' && printf '%s' "$admin_overview" | grep -q '"super_admins"' && echo yes || echo no)"
+
+admin_list=$(curl -s "$BASE/api/admins/?page_size=5" -H "Authorization: Bearer $access2")
+check "管理员列表 code=0" "0" "$(jq_get "$admin_list" "['code']")"
+check "管理员列表含分页键 items" "yes" \
+  "$(printf '%s' "$admin_list" | grep -q '"items"' && echo yes || echo no)"
+check "管理员列表不泄露口令" "no" \
+  "$(printf '%s' "$admin_list" | grep -q '"password"' && echo yes || echo no)"
+
+admin_badparam=$(curl -s -w '\n%{http_code}' "$BASE/api/admins/?ordering=password" -H "Authorization: Bearer $access2")
+check "管理员列表非法排序 HTTP 400" "400" "$(printf '%s' "$admin_badparam" | tail -1)"
+check "管理员列表非法排序 code=10001" "10001" "$(jq_get "$(printf '%s' "$admin_badparam" | sed '$d')" "['code']")"
+
+# 13.2 新建一个临时运营账号
+TEMP_USER="e2e_admin_$$_${RANDOM:-0}"
+TEMP_EMAIL="${TEMP_USER}@platform.local"
+create_admin=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/admins/" \
+  -H "Authorization: Bearer $access2" -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$TEMP_USER\",\"nickname\":\"E2E 临时账号\",\"email\":\"$TEMP_EMAIL\",\"password\":\"$E2E_ADMIN_PASSWORD\",\"role\":\"operator\",\"remark\":\"e2e 脚本创建\"}")
+check "新建管理员 HTTP 201" "201" "$(printf '%s' "$create_admin" | tail -1)"
+create_admin_body=$(printf '%s' "$create_admin" | sed '$d')
+check "新建管理员 code=0" "0" "$(jq_get "$create_admin_body" "['code']")"
+temp_id=$(jq_get "$create_admin_body" "['data']['id']")
+check "新建管理员默认启用" "active" "$(jq_get "$create_admin_body" "['data']['status']")"
+check "新建运营账号不是超级管理员" "False" "$(jq_get "$create_admin_body" "['data']['is_superuser']")"
+
+# 13.3 账号名判重（大小写不敏感）与弱口令
+dup_admin=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/admins/" \
+  -H "Authorization: Bearer $access2" -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$(printf '%s' "$TEMP_USER" | tr '[:lower:]' '[:upper:]')\",\"email\":\"other_$$@platform.local\",\"password\":\"$E2E_ADMIN_PASSWORD\"}")
+check "账号名重复 HTTP 400" "400" "$(printf '%s' "$dup_admin" | tail -1)"
+check "账号名重复 code=15002" "15002" "$(jq_get "$(printf '%s' "$dup_admin" | sed '$d')" "['code']")"
+
+weak_admin=$(curl -s -X POST "$BASE/api/admins/" \
+  -H "Authorization: Bearer $access2" -H 'Content-Type: application/json' \
+  -d "{\"username\":\"weak_$$_${RANDOM:-0}\",\"email\":\"weak_$$@platform.local\",\"password\":\"123456\"}")
+check "弱口令被拒 code=10001" "10001" "$(jq_get "$weak_admin" "['code']")"
+
+# 13.4 临时账号能登录，但**不能**管管理员（权限边界）
+temp_login=$(curl -s -X POST "$BASE/api/auth/login/" -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$TEMP_USER\",\"password\":\"$E2E_ADMIN_PASSWORD\"}")
+check "临时账号登录 code=0" "0" "$(jq_get "$temp_login" "['code']")"
+temp_access=$(jq_get "$temp_login" "['data']['access']")
+
+temp_forbidden=$(curl -s -w '\n%{http_code}' "$BASE/api/admins/" -H "Authorization: Bearer $temp_access")
+check "运营访问管理员列表 HTTP 403" "403" "$(printf '%s' "$temp_forbidden" | tail -1)"
+check "运营访问管理员列表 code=10003" "10003" "$(jq_get "$(printf '%s' "$temp_forbidden" | sed '$d')" "['code']")"
+
+# 13.5 本人改口令（`/api/admins/me/password/`，任何角色都能用）
+wrong_old=$(curl -s -X POST "$BASE/api/admins/me/password/" -H "Authorization: Bearer $temp_access" \
+  -H 'Content-Type: application/json' \
+  -d "{\"old_password\":\"definitely-wrong\",\"new_password\":\"$E2E_ADMIN_PASSWORD_2\"}")
+check "原口令错误 code=15006" "15006" "$(jq_get "$wrong_old" "['code']")"
+
+self_change=$(curl -s -X POST "$BASE/api/admins/me/password/" -H "Authorization: Bearer $temp_access" \
+  -H 'Content-Type: application/json' \
+  -d "{\"old_password\":\"$E2E_ADMIN_PASSWORD\",\"new_password\":\"$E2E_ADMIN_PASSWORD_2\"}")
+check "本人改口令 code=0" "0" "$(jq_get "$self_change" "['code']")"
+
+temp_relogin=$(curl -s -X POST "$BASE/api/auth/login/" -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$TEMP_USER\",\"password\":\"$E2E_ADMIN_PASSWORD_2\"}")
+check "改完能用新口令登录" "0" "$(jq_get "$temp_relogin" "['code']")"
+
+# 13.6 超级管理员给他人重置口令
+reset_pw=$(curl -s -X POST "$BASE/api/admins/$temp_id/password/" -H "Authorization: Bearer $access2" \
+  -H 'Content-Type: application/json' -d "{\"new_password\":\"$E2E_ADMIN_PASSWORD\"}")
+check "重置他人口令 code=0" "0" "$(jq_get "$reset_pw" "['code']")"
+
+temp_login_again=$(curl -s -X POST "$BASE/api/auth/login/" -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$TEMP_USER\",\"password\":\"$E2E_ADMIN_PASSWORD\"}")
+check "重置后能用新口令登录" "0" "$(jq_get "$temp_login_again" "['code']")"
+
+# 13.7 停用 / 启用：停用后立刻登不进来
+disable_admin=$(curl -s -X POST "$BASE/api/admins/$temp_id/status/" -H "Authorization: Bearer $access2" \
+  -H 'Content-Type: application/json' -d '{"status":"disabled"}')
+check "停用管理员 code=0" "0" "$(jq_get "$disable_admin" "['code']")"
+
+disabled_login=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/auth/login/" -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$TEMP_USER\",\"password\":\"$E2E_ADMIN_PASSWORD\"}")
+check "停用后登录 HTTP 403" "403" "$(printf '%s' "$disabled_login" | tail -1)"
+check "停用后登录 code=11002" "11002" "$(jq_get "$(printf '%s' "$disabled_login" | sed '$d')" "['code']")"
+
+enable_admin=$(curl -s -X POST "$BASE/api/admins/$temp_id/status/" -H "Authorization: Bearer $access2" \
+  -H 'Content-Type: application/json' -d '{"status":"active"}')
+check "重新启用 code=0" "0" "$(jq_get "$enable_admin" "['code']")"
+
+# 13.8 两条自锁护栏（服务端判，不靠前端置灰）
+me_id=$(curl -s "$BASE/api/auth/me/" -H "Authorization: Bearer $access2" | python3 -c \
+  "import json,sys;print(json.load(sys.stdin)['data']['id'])" 2>/dev/null || echo "")
+if [ -n "$me_id" ]; then
+  self_disable=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/admins/$me_id/status/" \
+    -H "Authorization: Bearer $access2" -H 'Content-Type: application/json' -d '{"status":"disabled"}')
+  check "不能停用自己 HTTP 400" "400" "$(printf '%s' "$self_disable" | tail -1)"
+  self_disable_code=$(jq_get "$(printf '%s' "$self_disable" | sed '$d')" "['code']")
+  # 还有别的超级管理员时是 15004（不能对自己动手），只剩自己时是 15005
+  # （不能动最后一个启用中的超级管理员）——两种都算拦住了。
+  if [ "$self_disable_code" = "15004" ] || [ "$self_disable_code" = "15005" ]; then
+    check "不能停用自己（15004/15005）" "blocked" "blocked"
+  else
+    check "不能停用自己（15004/15005）" "blocked" "$self_disable_code"
+  fi
+fi
+
+# 13.9 删除临时账号，并确认库里不留东西
+delete_admin=$(curl -s -w '\n%{http_code}' -X DELETE "$BASE/api/admins/$temp_id/" -H "Authorization: Bearer $access2")
+check "删除管理员 HTTP 200" "200" "$(printf '%s' "$delete_admin" | tail -1)"
+check "删除管理员 code=0" "0" "$(jq_get "$(printf '%s' "$delete_admin" | sed '$d')" "['code']")"
+
+gone_admin=$(curl -s "$BASE/api/admins/?keyword=$TEMP_USER" -H "Authorization: Bearer $access2")
+check "删除后列表查不到" "0" "$(jq_get "$gone_admin" "['data']['total']")"
+
+missing_admin=$(curl -s -w '\n%{http_code}' "$BASE/api/admins/999999/" -H "Authorization: Bearer $access2")
+check "管理员不存在 HTTP 404" "404" "$(printf '%s' "$missing_admin" | tail -1)"
+check "管理员不存在 code=15001" "15001" "$(jq_get "$(printf '%s' "$missing_admin" | sed '$d')" "['code']")"
 
 echo
 echo "通过 $pass 项，失败 $fail 项"

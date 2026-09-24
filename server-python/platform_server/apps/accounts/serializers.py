@@ -32,11 +32,18 @@ class AdminUserSerializer(serializers.ModelSerializer[AdminUser]):
     """管理员信息输出。
 
     只暴露前端需要的字段，`password`、`is_staff` 之类的内部字段一律不出网。
+
+    这个形状**同时**服务于登录响应与账号管理页（`/api/admins/`）：
+    两处展示的是同一张表，多一份形状就会多一处漂移。
+    `role` 是**存量字段**，并不总是等于 `effective_role`（`is_superuser=True`
+    而 `role` 还没升上来的历史行），所以把 `effective_role` 一并给出，
+    前端按它判断权限、按 `role` 展示原始取值。
     """
 
     role_display = serializers.CharField(source="get_role_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     display_name = serializers.CharField(read_only=True)
+    effective_role = serializers.CharField(read_only=True)
 
     class Meta:
         model = AdminUser
@@ -48,12 +55,15 @@ class AdminUserSerializer(serializers.ModelSerializer[AdminUser]):
             "email",
             "role",
             "role_display",
+            "effective_role",
             "status",
             "status_display",
+            "remark",
             "is_superuser",
             "last_login",
             "last_login_ip",
             "created_at",
+            "updated_at",
         )
         read_only_fields = fields
 

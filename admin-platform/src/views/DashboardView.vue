@@ -17,7 +17,8 @@ const profile = computed(() => [
   { label: '账号', value: auth.admin?.username ?? '—' },
   { label: '昵称', value: auth.admin?.nickname || '—' },
   { label: '邮箱', value: auth.admin?.email ?? '—' },
-  { label: '角色', value: auth.admin?.role_display ?? '—' },
+  // 角色按**权限口径**展示（is_superuser 的历史行也算超级管理员）。
+  { label: '角色', value: auth.roleDisplay },
   { label: '账号状态', value: auth.admin?.status_display ?? '—' },
   { label: '最后登录', value: formatDateTime(auth.admin?.last_login) },
   { label: '登录 IP', value: formatIp(auth.admin?.last_login_ip) },
@@ -27,10 +28,14 @@ const profile = computed(() => [
 /** 后续要接的模块，标出本期是否已完成。 */
 const roadmap = [
   { title: '登录与账号体系', description: '管理员登录、JWT 续期、退出、路由守卫', done: true },
-  { title: '玩家管理', description: '查询玩家、展示房卡/金币、封禁解封，并预留对局与充值记录入口', done: true },
+  { title: '玩家管理', description: '查询玩家、展示房卡/金币、封禁解封，并预留充值记录入口', done: true },
   { title: '房间管理', description: '只读监控存活房间（配置 / 座位 / 所在游戏服），并预留强制解散入口', done: true },
-  { title: '对局记录', description: '战绩查询、异常对局审计', done: false },
-  { title: '管理员账号', description: '增删改管理平台账号、分配角色（仅超级管理员）', done: false },
+  { title: '对局记录', description: '对局列表 / 房间对局 / 单局四家出牌记录 / 玩家最近战绩', done: true },
+  {
+    title: '管理员账号',
+    description: '增删改管理平台账号、启用停用、重置与修改口令（仅超级管理员）',
+    done: true,
+  },
   { title: '运营配置', description: '公告、渠道、机器人策略', done: false },
 ]
 </script>
@@ -56,7 +61,9 @@ const roadmap = [
       <template #header>
         <div class="card-header">
           <span>平台建设进度</span>
-          <el-text size="small" type="info">本期交付登录闭环、玩家管理与房间管理</el-text>
+          <el-text size="small" type="info">
+            本期交付登录闭环、玩家管理、房间管理、对局记录与管理员账号
+          </el-text>
         </div>
       </template>
 

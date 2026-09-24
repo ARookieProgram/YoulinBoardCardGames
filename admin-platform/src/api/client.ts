@@ -216,3 +216,19 @@ export async function post<T>(
   const response = await http.post<T>(url, data, config)
   return response.data
 }
+
+/** PATCH 请求（局部更新），直接拿到拆壳后的数据。 */
+export async function patch<T>(
+  url: string,
+  data?: unknown,
+  config?: AxiosRequestConfig,
+): Promise<T> {
+  const response = await http.patch<T>(url, data, config)
+  return response.data
+}
+
+/** DELETE 请求，直接拿到拆壳后的数据。 */
+export async function del<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
+  const response = await http.delete<T>(url, config)
+  return response.data
+}
