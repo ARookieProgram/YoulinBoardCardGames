@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# 管理平台登录闭环的端到端验收脚本（本机手工跑，不进门禁）。
+# 管理平台端到端验收脚本：登录闭环 + 玩家管理（本机手工跑，不进门禁）。
 #
-# 前置：platform_server 已在 127.0.0.1:8000 运行，且已 seed_admin。
+# 前置：
+#   1) platform_server 已在 127.0.0.1:8000 运行，且已 seed_admin；
+#   2) 玩家库（`DATABASES["player"]`）可连——第 9 节的封禁 / 解封断言需要库里有
+#      **未被封禁**的玩家；没有数据时这一小段会自动跳过并打印提示，不算失败。
+#
 # 用法：./scripts/e2e_login_check.sh [base_url]
 set -uo pipefail
 
@@ -91,6 +95,87 @@ check "退出 revoked=true" "True" "$(jq_get "$(printf '%s' "$logout" | sed '$d'
 after=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/auth/refresh/" -H 'Content-Type: application/json' \
   -d "{\"refresh\":\"$new_refresh\"}")
 check "退出后 refresh 失效（401）" "401" "$(printf '%s' "$after" | tail -1)"
+
+echo "== 9. 玩家管理（只读数据源 + 封禁流水）=="
+
+# 第 8 节已经退出了登录态，这里重新登一次拿新的 access。
+login2=$(curl -s -X POST "$BASE/api/auth/login/" -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$USERNAME\",\"password\":\"$PASSWORD\"}")
+access2=$(jq_get "$login2" "['data']['access']")
+
+# 9.1 认证与权限下限
+nologin=$(curl -s -w '\n%{http_code}' "$BASE/api/players/")
+check "无令牌访问玩家列表返回 401" "401" "$(printf '%s' "$nologin" | tail -1)"
+check "无令牌 code=10002" "10002" "$(jq_get "$(printf '%s' "$nologin" | sed '$d')" "['code']")"
+
+# 9.2 概览与列表（列表能力 = 只读数据源的核心）
+overview=$(curl -s "$BASE/api/players/overview/" -H "Authorization: Bearer $access2")
+check "玩家概览 code=0" "0" "$(jq_get "$overview" "['code']")"
+
+list=$(curl -s "$BASE/api/players/?page=1&page_size=5" -H "Authorization: Bearer $access2")
+check "玩家列表 code=0" "0" "$(jq_get "$list" "['code']")"
+check "列表含分页键 items" "yes" "$(printf '%s' "$list" | grep -q '"items"' && echo yes || echo no)"
+check "列表含房卡字段 gems" "yes" "$(printf '%s' "$list" | grep -q '"gems"' && echo yes || echo no)"
+
+# 9.3 参数校验与不存在
+badparam=$(curl -s -w '\n%{http_code}' "$BASE/api/players/?page_size=0" -H "Authorization: Bearer $access2")
+check "非法分页参数 HTTP 400" "400" "$(printf '%s' "$badparam" | tail -1)"
+check "非法分页参数 code=10001" "10001" "$(jq_get "$(printf '%s' "$badparam" | sed '$d')" "['code']")"
+
+missing=$(curl -s -w '\n%{http_code}' "$BASE/api/players/999999/" -H "Authorization: Bearer $access2")
+check "玩家不存在 HTTP 404" "404" "$(printf '%s' "$missing" | tail -1)"
+check "玩家不存在 code=12001" "12001" "$(jq_get "$(printf '%s' "$missing" | sed '$d')" "['code']")"
+
+# 9.4 预留入口：契约已定，数据源待接入（不访问玩家库，任意 ID 都有答复）
+games=$(curl -s "$BASE/api/players/999999/games/" -H "Authorization: Bearer $access2")
+check "对局记录入口已预留" "True" "$(jq_get "$games" "['data']['reserved']")"
+check "对局记录入口分页形状不变" "0" "$(jq_get "$games" "['data']['total']")"
+
+recharges=$(curl -s "$BASE/api/players/999999/recharges/" -H "Authorization: Bearer $access2")
+check "充值记录入口已预留" "True" "$(jq_get "$recharges" "['data']['reserved']")"
+
+# 9.5 封禁 / 解封：需要玩家库里有**未被封禁**的玩家
+normal=$(curl -s "$BASE/api/players/?ban_state=normal&page_size=1" -H "Authorization: Bearer $access2")
+player_id=$(printf '%s' "$normal" | python3 -c \
+  "import json,sys;d=json.load(sys.stdin);items=d['data']['items'];print(items[0]['player_id'] if items else '')" \
+  2>/dev/null || echo "")
+
+if [ -z "$player_id" ]; then
+  printf '  \033[33m!\033[0m 玩家库没有可用的玩家数据，跳过封禁 / 解封断言（导入玩家数据后再跑本段）\n'
+else
+  detail=$(curl -s "$BASE/api/players/$player_id/" -H "Authorization: Bearer $access2")
+  check "玩家详情 code=0" "0" "$(jq_get "$detail" "['code']")"
+  check "详情返回同一玩家" "$player_id" "$(jq_get "$detail" "['data']['player_id']")"
+
+  banned=$(curl -s -X POST "$BASE/api/players/$player_id/ban/" \
+    -H "Authorization: Bearer $access2" -H 'Content-Type: application/json' \
+    -d '{"reason":"e2e 自动验收","duration_hours":1}')
+  check "封禁 code=0" "0" "$(jq_get "$banned" "['code']")"
+  check "封禁后 banned=true" "True" "$(jq_get "$banned" "['data']['banned']")"
+
+  again=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/players/$player_id/ban/" \
+    -H "Authorization: Bearer $access2" -H 'Content-Type: application/json' \
+    -d '{"reason":"重复封禁"}')
+  check "重复封禁 HTTP 400" "400" "$(printf '%s' "$again" | tail -1)"
+  check "重复封禁 code=12002" "12002" "$(jq_get "$(printf '%s' "$again" | sed '$d')" "['code']")"
+
+  filtered=$(curl -s "$BASE/api/players/?ban_state=banned&keyword=$player_id" \
+    -H "Authorization: Bearer $access2")
+  check "封禁状态过滤能查到该玩家" "True" \
+    "$(printf '%s' "$filtered" | python3 -c \
+      "import json,sys;d=json.load(sys.stdin);print(d['data']['total'] > 0)" 2>/dev/null || echo "")"
+
+  unbanned=$(curl -s -X POST "$BASE/api/players/$player_id/unban/" \
+    -H "Authorization: Bearer $access2" -H 'Content-Type: application/json' \
+    -d '{"reason":"e2e 自动验收收尾"}')
+  check "解封 code=0" "0" "$(jq_get "$unbanned" "['code']")"
+  check "解封后 banned=false" "False" "$(jq_get "$unbanned" "['data']['banned']")"
+
+  again2=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/players/$player_id/unban/" \
+    -H "Authorization: Bearer $access2" -H 'Content-Type: application/json' -d '{}')
+  check "重复解封 HTTP 400" "400" "$(printf '%s' "$again2" | tail -1)"
+  check "重复解封 code=12003" "12003" "$(jq_get "$(printf '%s' "$again2" | sed '$d')" "['code']")"
+fi
 
 echo
 echo "通过 $pass 项，失败 $fail 项"
