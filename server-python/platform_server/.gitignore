@@ -1,0 +1,23 @@
+# 管理平台后端（platform_server）的运行期产物
+#
+# Python 字节码与虚拟环境由根级/上层规则覆盖，这里只列本工程特有的。
+
+# 运行期数据目录：SQLite 开发库、收集的静态文件
+var/
+
+# 启停脚本（scripts/serve.py）记的 PID 与它启动的进程
+.run/
+
+# 本地环境变量（口令、密钥）；只提交 .env.example
+.env
+.env.local
+
+# Django 的日志（含启停脚本写的 logs/platform.log）
+logs/
+*.log
+
+# 测试与构建产物
+.pytest_cache/
+htmlcov/
+.coverage
+staticfiles/

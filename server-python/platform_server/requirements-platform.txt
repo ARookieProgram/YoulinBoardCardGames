@@ -1,0 +1,33 @@
+# 管理平台后端依赖
+#
+# 与 `server-python/requirements.txt`（游戏服务端三进程）**分开维护**：
+# 管理平台是独立的 Django 应用，游戏服务端不需要下面任何一个包，
+# 混在一起会让两边的部署互相牵制。
+#
+# 安装（复用 server-python/.venv）：
+#   cd server-python
+#   .venv/bin/pip install -r platform_server/requirements-platform.txt
+#
+# PyMySQL 已在 requirements.txt 里（游戏服务端在用），这里显式列出是为了
+# 让本文件可以独立安装；Django 的 mysql 后端通过
+# `platform_server/config/__init__.py` 的 `pymysql.install_as_MySQLdb()` 接入。
+
+# Web 框架
+Django>=6.1,<7
+
+# REST API（统一响应、异常处理、分页）
+djangorestframework>=3.18,<4
+
+# JWT 认证（登录 / 刷新 / 退出黑名单）
+djangorestframework-simplejwt>=5.5,<6
+
+# 前端 dev server 与后端不同源，需要 CORS 响应头
+django-cors-headers>=4.9,<5
+
+# MySQL 驱动（纯 Python，免编译）。
+#
+# 版本上限写 <2：PyMySQL 的**最新版是 1.2.x**，没有 2.x。
+# 不要照抄 Django 6.1 报错里的"2.2.1"——那是 PyMySQL 为了满足 Django 的版本检查，
+# 故意把 `version_info` 报成 (2, 2, 8, ...)（真实版本在 `VERSION = (1, 2, 3, ...)`），
+# 按它写 `PyMySQL>=2.2` 会得到 "No matching distribution found"。
+PyMySQL>=1.2,<2

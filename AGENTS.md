@@ -16,6 +16,13 @@
 | `repo:client/` | Cocos Creator **2.4.15**（`cocos2d-html5`） | 客户端。`assets/scripts/` 下是手写的 **TypeScript**（ES6 `class` + `cc._decorator` 的 `@ccclass` / `@property`，由 Creator 自己编译）；`.fire` 场景由 Creator 编辑器产出 |
 | `repo:server/` | Node.js + **TypeScript（`strict: true`，`tsc` 编译到 `server/dist/`）** + Express + Socket.IO + MySQL（`mysql2` 驱动） | 服务端。源码是 `.ts`，跑的是编译产物；三个独立进程：账号服 / 大厅服 / 游戏服 |
 | `repo:server-python/` | **Python 3.14** + `asyncio` + `aiohttp` + `python-socketio` 协议层（自研）+ `aiomysql` | 服务端的 Python 重写版。同样的三个进程、同样的 6 个端口、同样的 HTTP 路由 / md5 签名 / Socket.IO 事件名 / MySQL schema，**与现有客户端和数据库完全兼容**；契约见 `repo:server-python/AGENTS.md` |
+| `repo:server-python/platform_server/` | **Python 3.14 + Django 6.1 + DRF + SimpleJWT** | **游戏管理平台的后端**（:8000）。独立的库 `db_scmj_admin`、独立的账号表 `AdminUser`，**与玩家账号体系完全隔离**；契约见 `repo:server-python/platform_server/AGENTS.md` |
+| `repo:admin-platform/` | **Vue 3 + TypeScript + Element Plus + Pinia + Vue Router + Vite** | **游戏管理平台的前端**（dev :5173）。登录页 / 登录态 / 请求层 / 路由守卫 / 后台骨架；只与 `platform_server` 通信，与 `client/` 无关 |
+
+**管理平台是独立的一块，不要与游戏服务端混在一起**：它跑在 8000 端口、用独立的库与账号表，
+玩家账号无法登录管理平台，管理员账号也不能当游戏账号用。隔离红线与"能同时运行"的端口表见
+`repo:server-python/platform_server/AGENTS.md` §2 与 `repo:server-python/platform_server/README.md` §1。
+
 
 **客户端源码是 TypeScript，组件写法已经统一到 ES6 `class` + `cc._decorator` 装饰器**
 （`@ccclass` / `@property`，见 `repo:client/AGENTS.md` §2），没有构建步骤、没有打包器：
@@ -50,7 +57,18 @@ client (Cocos Creator)
    │  HTTP  ──────────────►  游戏服 http_service     :9003   大厅服内部调用（建房/进房），需签名
    │
    └────────────►  MySQL  db_scmj（`repo:server/sql/db_babykylin.sql`）
+
+admin-platform (Vue 3 + Element Plus)
+   │
+   │  HTTP /api/… ────────►  管理平台后端 platform_server  :8000  登录 / JWT / 后台接口
+   │
+   └────────────►  MySQL  db_scmj_admin（**独立库**，管理员表不与玩家表共存）
 ```
+
+**管理平台（`admin-platform/` + `server-python/platform_server/`）是并列的第三块**：
+它不连客户端，也不经过账号服/大厅服/游戏服，只在 8000 端口上提供后台接口，
+用独立库 `db_scmj_admin` 与独立账号表 `AdminUser`。因此它与游戏服务端**可以同时运行**
+（端口不冲突），而**账号体系完全隔离**：玩家账号登不进管理平台，管理员账号也不是游戏账号。
 
 「账号服」是一个进程两个 HTTP 服务：`account_server.ts`（:9000）与 `dealer_api.ts`（:12581），
 由 `repo:server/account_server/app.ts` 同时拉起。
@@ -197,6 +215,14 @@ npm run test:tools             # 校验检查器自身
 - **改客户端类型**：共享声明在 `repo:client/types/`（`cc-vv.d.ts` / `domain.d.ts` /
   `cc-augment.d.ts` / `globals.d.ts`），改完跑 `npm run verify -- --only=types`；迁移与断言规矩见
   `repo:docs/ai-native/client-typescript-migration.md`。
+- **改管理平台后端**（`repo:server-python/platform_server/`）：它是独立的 Django 应用，
+  与三个游戏进程没有共用代码。**先读 `repo:server-python/platform_server/AGENTS.md` §2 的隔离红线**，
+  再动手；改完跑 `PLATFORM_DB_ENGINE=sqlite ../.venv/bin/python manage.py test` 与
+  `./scripts/e2e_login_check.sh`，另外 `npm run check:python` 会 AST 解析本目录每个 `.py`。
+- **改管理平台前端**（`repo:admin-platform/`）：Vue 3 + TS + Element Plus，只与 8000 端口的
+  `platform_server` 通信。加页面只需往 `repo:admin-platform/src/router/routes.ts` 的 `children`
+  里加一条（菜单会自动派生）；改完跑 `npm run type-check` 与 `npm run build`。
+  业务错误码在前后端各有一份常量，**改一处要同步另一处**。
 
 ---
 
@@ -206,7 +232,7 @@ npm run test:tools             # 校验检查器自身
 
 | 载体 | 位置 | 加载时机 |
 | --- | --- | --- |
-| 指令文件 | 本文件、`repo:client/AGENTS.md`、`repo:server/AGENTS.md`、`repo:server-python/AGENTS.md` | 项目根到工作目录逐层叠加；**另外，访问某目录下的文件时，该目录的指令文件也会被补加载** |
+| 指令文件 | 本文件、`repo:client/AGENTS.md`、`repo:server/AGENTS.md`、`repo:server-python/AGENTS.md`、`repo:server-python/platform_server/AGENTS.md` | 项目根到工作目录逐层叠加；**另外，访问某目录下的文件时，该目录的指令文件也会被补加载** |
 | 私有覆盖 | `AGENTS.local.md`（同目录） | 叠加在同一目录的 `AGENTS.md` 之上，**不提交**（已 gitignore） |
 | 项目技能 | `repo:.dsh/skills/<name>/SKILL.md` | 由 `description` 匹配任务后按需加载 |
 
