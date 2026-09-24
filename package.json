@@ -14,6 +14,7 @@
     "check:harness": "node tools/verify.mjs --only=harness",
     "check:protocol": "node tools/verify.mjs --only=protocol",
     "check:smoke": "node tools/verify.mjs --only=smoke",
+    "check:python": "node tools/verify.mjs --only=python",
     "test:tools": "node --test tools/selftest.test.mjs"
   }
 }

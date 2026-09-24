@@ -1,0 +1,14 @@
+# 服务端运行时依赖（Python 3.14.x）。
+#
+# 与 Node 版的对应关系：
+#   express   -> aiohttp                       （HTTP 服务端与客户端）
+#   socket.io -> python-socketio               （对局协议，兼容客户端 socket.io-client 2.x）
+#   mysql2    -> aiomysql                      （异步 MySQL 驱动，支持 MySQL 8 的 caching_sha2_password）
+#   node:crypto -> hashlib / base64            （标准库，无需声明）
+#
+# cryptography 是 PyMySQL/aiomysql 实现 caching_sha2_password 认证的可选依赖，
+# 显式列出以免在 MySQL 8 默认认证方式下连不上库。
+aiohttp>=3.13,<4
+python-socketio>=5.14,<6
+aiomysql>=0.2,<1
+cryptography>=44

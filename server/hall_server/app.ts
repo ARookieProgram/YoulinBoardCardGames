@@ -3,6 +3,7 @@ import type { Server } from 'node:http';
 import * as startup from '../utils/startup';
 import * as db from '../utils/db';
 import { loadConfigs } from '../utils/config';
+import * as bancheck from '../utils/bancheck';
 
 // client_service / room_service 仍然用 require 而不是 import：import 会被编译器提到文件顶部，
 // 改变原实现的模块求值顺序（先加载这两个 service，再加载 startup / db）。
@@ -12,6 +13,9 @@ var room_service: typeof import('./room_service') = require('./room_service');
 
 var configs = loadConfigs(process.argv[2], __dirname);
 var config = configs.hall_server();
+
+//封禁校验（登录 / 建房 / 进房前问管理平台）。配置见 configs_*.ts 的 ban_check()。
+bancheck.init(configs.ban_check());
 
 var mysqlConf = configs.mysql();
 

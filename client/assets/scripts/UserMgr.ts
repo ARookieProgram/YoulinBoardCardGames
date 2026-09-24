@@ -5,6 +5,13 @@
 
 const { ccclass, property } = cc._decorator;
 
+/**
+ * 大厅服在"账号被封禁"时返回的业务码（`server/hall_server/client_service.ts` /
+ * `server-python/hall_server/client_service.py` 的 `ERR_ACCOUNT_BANNED`）。
+ * 正常登录是 0，1 是参数不全，2 是历史遗留的 login failed。
+ */
+const ERR_ACCOUNT_BANNED = 3;
+
 @ccclass
 export default class UserMgr extends cc.Component {
     @property account: string | number | null = null;
@@ -53,6 +60,13 @@ export default class UserMgr extends cc.Component {
         var onLogin = function (ret: HttpResp) {
             if (ret.errcode !== 0) {
                 console.log(ret.errmsg);
+                // 封禁是服务端（大厅服）在登录时就拦下的状态：必须让玩家看到原因，
+                // 否则界面上只会留一个不会消失的"正在登录游戏"。
+                // `errmsg` 由服务端拼好（原因 / 自动解封时间），原样展示。
+                if (ret.errcode === ERR_ACCOUNT_BANNED) {
+                    cc.vv.wc.hide();
+                    cc.vv.alert!.show("无法登录", ret.errmsg ? String(ret.errmsg) : "账号已被封禁");
+                }
             }
             else {
                 if (!ret.userid) {

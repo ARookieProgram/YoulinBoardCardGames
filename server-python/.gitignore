@@ -1,0 +1,13 @@
+# 虚拟环境与安装产物
+.venv/
+__pycache__/
+*.py[cod]
+
+# 运行期产物（与 server/ 一致，不提交）
+logs/
+.run/
+nohup.out
+
+# IDE（本机 PyCharm/IDEA 的工程文件，含 workspace.xml，不入库）
+.idea/
+.vscode/

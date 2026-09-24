@@ -26,6 +26,7 @@ import { checkClientAssetIntegrity } from "./lib/assets.mjs";
 import { checkHarness } from "./lib/harness.mjs";
 import { checkProtocol } from "./lib/protocol.mjs";
 import { runSmoke } from "./lib/smoke.mjs";
+import { checkPython } from "./lib/python.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -383,12 +384,21 @@ async function selfTestCheck() {
   });
 }
 
+/**
+ * Check: the Python server tree parses and its offline tests pass.
+ * @returns {Promise<object>} check result.
+ */
+async function pythonCheck() {
+  return await checkPython(ROOT, { verbose: options.verbose });
+}
+
 const CHECKS = [
   ["syntax", syntaxCheck],
   ["types", typesCheck],
   ["harness", harnessCheck],
   ["protocol", protocolCheck],
   ["smoke", smokeCheck],
+  ["python", pythonCheck],
   ["selftest", selfTestCheck],
 ];
 

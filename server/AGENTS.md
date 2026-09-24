@@ -16,7 +16,7 @@ server/
 ├─ account_server/                   ← 账号服 :9000，含 dealer_api :12581
 ├─ hall_server/                      ← 大厅服 :9001（客户端）、:9002（游戏服上报）
 ├─ game_server/                      ← 游戏服 :10000（Socket.IO）、:9003（HTTP）
-├─ utils/                            ← db.ts / http.ts / crypto.ts / startup.ts / config.ts 共享层
+├─ utils/                            ← db.ts / http.ts / crypto.ts / startup.ts / config.ts / bancheck.ts 共享层
 ├─ sql/db_babykylin.sql              ← 建表与初始数据（权威 schema）
 ├─ tests/                            ← 2016 年的手工脚本（已随迁移改成 `.ts`），**不是自动化测试**
 ├─ dist/                             ← **编译产物**，不提交（server/.gitignore 已忽略）
@@ -129,9 +129,9 @@ yarn install --frozen-lockfile && yarn build   # 先装依赖并编译出 dist/
 | --- | --- | --- |
 | 9000 | `account_server/account_server.ts:54` | 客户端 → 账号服 |
 | 12581 | `account_server/dealer_api.ts:34` | 渠道/代理查询 |
-| 9001 | `hall_server/client_service.ts:367` | 客户端 → 大厅服 |
+| 9001 | `hall_server/client_service.ts:392` | 客户端 → 大厅服 |
 | 9002 | `hall_server/room_service.ts:289` | 游戏服 → 大厅服上报 |
-| 10000 | `game_server/socket_service.ts:87` | 客户端 Socket.IO 对局 |
+| 10000 | `game_server/socket_service.ts:93` | 客户端 Socket.IO 对局 |
 | 9003 | `game_server/http_service.ts:220` | 大厅服 → 游戏服内部调用 |
 
 各 `start()` 返回自己的 `http.Server`，由 `*/app.ts` 交给 `utils/startup.ts` 汇总；横幅只有在
@@ -158,10 +158,25 @@ yarn install --frozen-lockfile && yarn build   # 先装依赖并编译出 dist/
 1. 客户端 → 账号服  GET  /guest                              换取签名与大厅地址
 2. 客户端    cc.vv.http.url 切换为 "http://" + cc.vv.SI.hall  （UserMgr.js）
 3. 客户端 → 大厅服  GET  /login?account=&sign=               取得 userid 等资料
+3b.         大厅服  → 管理平台  GET /api/internal/players/ban-check/   封禁校验（见下）
 4. 客户端 → 大厅服  GET  /enter_private_room?...             取得 {ip, port, token, roomid, time, sign}
+   （4 之前大厅服同样会做一次封禁校验）
 5. 客户端 → 游戏服  socket.io 连接 ip:port，然后 emit('login', {token, roomid, time, sign})
 6. 游戏服   校验 md5(roomid + token + time + ROOM_PRI_KEY) == sign
+6b.         游戏服  → 管理平台  ban-check（按 token 里的 userId）       封禁校验（见下）
 ```
+
+**封禁校验（`utils/bancheck.ts`）**：大厅服的 `/login`、`/create_private_room`、
+`/enter_private_room` 与游戏服的 socket `login` 都会问一次管理平台
+（`platform_server`，默认 127.0.0.1:8000）"这个账号 / userId 被封了吗"，被拦下时：
+
+* 大厅服回 `errcode: 3`（客户端 `UserMgr.onLogin` 弹"无法登录"）；
+* 游戏服回 `login_result{errcode: 4}` 且**不 bind/不建连接**（客户端 `GameNetMgr` 弹提示）。
+
+三条运行语义：**fail-open**（超时 / 连不上 / 非 0 一律放行 + 警告日志）、
+**结果缓存**（默认 30 秒，封禁最迟一个 TTL 生效）、**密钥必须两侧一致**
+（`ban_check()["PRI_KEY"]` ↔ 平台 `PLATFORM_INTERNAL_KEY`，不一致 = 封禁静默失效）。
+改这块之前先读 `utils/bancheck.ts` 的模块文档。
 
 客户端的 HTTP 封装（`HTTP.js`）**全部用 GET**，参数走 query string。
 
@@ -252,8 +267,8 @@ gameMgr:loadGameManager(conf.type)
 
 `userMgr.bind(userId, socket)` 在登录成功时登记连接，`userMgr.del` 在断开时移除。
 
-**唯一的例外是 `socket_service.ts` 里 7 处直接的 `socket.emit`**，全部发生在登录/连接阶段
-（此时还没有房间可广播）：`login_result`×4、`login_finished`、`exit_result`、`game_pong`。
+**唯一的例外是 `socket_service.ts` 里 8 处直接的 `socket.emit`**，全部发生在登录/连接阶段
+（此时还没有房间可广播）：`login_result`×5、`login_finished`、`exit_result`、`game_pong`。
 
 - 新增**对局内**推送：用 `sendMsg` / `broacastInRoom`，不要写裸 `socket.emit`。
   理由是语义与可读性（读者一眼知道是"发给房间"还是"发给个人"），
@@ -275,12 +290,15 @@ gameMgr:loadGameManager(conf.type)
    会连数据库、会打印而不断言。不要把它们当作测试套件，也不要在 CI/门禁里执行。
 3. **不要提交 `nohup.out`、`logs/`、`.run/`、`dist/` 与数据库转储**（`start_all_mac.sh` 的运行期产物见 §1.2）。
 4. 端口、密钥、数据库口令集中在 `configs_*.ts`。不要在业务代码里硬编码端口或密钥。
-5. `utils/http.ts` 导出的 `send(res, errcode, errmsg, data)` 是**大厅服与游戏服**给客户端/调用方
+5. **大厅服与游戏服依赖管理平台**（`platform_server`，默认 127.0.0.1:8000）做封禁校验：
+   配置在 `configs_*.ts` 的 `ban_check()`。它**不可以**变成硬依赖——所有失败路径都必须
+   fail-open 放行并打日志；`ENABLE: false` 时连请求都不发（平台没部署的部署方式）。
+6. `utils/http.ts` 导出的 `send(res, errcode, errmsg, data)` 是**大厅服与游戏服**给客户端/调用方
    返回 JSON 的统一出口，这两个服务里新增接口请沿用它。
    注意**账号服没有跟进这条约定**：`account_server.ts:22` 与 `dealer_api.ts:20` 各自定义了一个
    本地 `function send(res, ret){ res.send(JSON.stringify(ret)) }`，返回结构也更随意。
    改动账号服接口时按它本地的写法来，不要为了"统一"而大改。
-6. `server/tests/*.ts`、`server/nohup.out` 等运行期文件不要提交（`nohup.out` 已在根 `.gitignore` 中）。
+7. `server/tests/*.ts`、`server/nohup.out` 等运行期文件不要提交（`nohup.out` 已在根 `.gitignore` 中）。
 
 ---
 

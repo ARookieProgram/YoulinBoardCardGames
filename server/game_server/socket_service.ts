@@ -3,6 +3,7 @@ import * as nodeHttp from "node:http";
 import express from "express";
 import socketio from "socket.io";
 
+import * as bancheck from "../utils/bancheck";
 import * as crypto from "../utils/crypto";
 import * as db from "../utils/db";
 import * as http from "../utils/http";
@@ -20,11 +21,16 @@ import type { GameSocket } from "../types/protocol";
  *
  * 登录链路（见 server/AGENTS.md §3）：
  * 客户端拿大厅服给的一次性 token 连上来，`login` 里校验
- * `md5(roomid + token + time + ROOM_PRI_KEY)` 与 token 时效，然后登记连接、取房间与座位，
+ * `md5(roomid + token + time + ROOM_PRI_KEY)` 与 token 时效，再问一次封禁状态
+ * （`utils/bancheck` → 管理平台的内部只读接口），然后登记连接、取房间与座位，
  * 把 `socket.gameMgr` 指向该房间的玩法实现；之后所有业务动作都走 `socket.gameMgr.xxx(...)`。
  *
- * 推送：对局内一律走 `userMgr`；只有登录/连接阶段的 7 处直接 `socket.emit`
- * （`login_result`×4、`login_finished`、`exit_result`、`game_pong`）是例外。
+ * **封禁拦截**：被封的玩家拿到 `login_result{errcode: 4}` 且**不建立连接**——这是最后
+ * 一道闸门：大厅服那边虽然也拦，但一个已经登录过的会话可能还攥着没过期的 token。
+ * 问不到平台时 fail-open 放行，见 `utils/bancheck.ts`。
+ *
+ * 推送：对局内一律走 `userMgr`；只有登录/连接阶段的 8 处直接 `socket.emit`
+ * （`login_result`×5、`login_finished`、`exit_result`、`game_pong`）是例外。
  */
 
 /**
@@ -134,73 +140,84 @@ export function start(conf: GameServerConfig, mgr?: unknown): nodeHttp.Server {
 			var userId = tokenMgr.getUserID(token);
 			var roomId = roomMgr.getUserRoom(userId);
 
-			userMgr.bind(userId,socket);
-			socket.userId = userId;
-
-			//返回房间信息
-			// 说明：原实现同样不判空（roomId 或座位为空时这里会抛 TypeError），
-			// 断言只是把类型对齐，运行时行为不变；要加保护请单独开一次改动。
-			var roomInfo = roomMgr.getRoom(roomId!)!;
-
-			var seatIndex = roomMgr.getUserSeat(userId);
-			roomInfo.seats[seatIndex!].ip = socket.handshake.address;
-
-			var userData: SeatPushInfo | null = null;
-			var seats: SeatPushInfo[] = [];
-			for(var i = 0; i < roomInfo.seats.length; ++i){
-				var rs = roomInfo.seats[i];
-				var online = false;
-				if(rs.userId > 0){
-					online = userMgr.isOnline(rs.userId);
+			//封禁校验：最后一道闸门。被封的玩家连 bind 都不做，直接回 login_result。
+			//按 userId 查（客户端只带 token，token 里只有 userId）；大厅服那边是按 account 查的，
+			//两条路都在 platform_server 侧落到同一条封禁流水上。
+			bancheck.checkUserId(userId,function(banStatus){
+				if(banStatus.banned){
+					console.log(4);
+					socket.emit('login_result',{errcode:4,errmsg:bancheck.banMessage(banStatus)});
+					return;
 				}
 
-				seats.push({
-					userid:rs.userId,
-					ip:rs.ip,
-					score:rs.score,
-					name:rs.name,
-					online:online,
-					ready:rs.ready,
-					seatindex:i
-				});
+				userMgr.bind(userId,socket);
+				socket.userId = userId;
 
-				if(userId == rs.userId){
-					userData = seats[i];
+				//返回房间信息
+				// 说明：原实现同样不判空（roomId 或座位为空时这里会抛 TypeError），
+				// 断言只是把类型对齐，运行时行为不变；要加保护请单独开一次改动。
+				var roomInfo = roomMgr.getRoom(roomId!)!;
+
+				var seatIndex = roomMgr.getUserSeat(userId);
+				roomInfo.seats[seatIndex!].ip = socket.handshake.address;
+
+				var userData: SeatPushInfo | null = null;
+				var seats: SeatPushInfo[] = [];
+				for(var i = 0; i < roomInfo.seats.length; ++i){
+					var rs = roomInfo.seats[i];
+					var online = false;
+					if(rs.userId > 0){
+						online = userMgr.isOnline(rs.userId);
+					}
+
+					seats.push({
+						userid:rs.userId,
+						ip:rs.ip,
+						score:rs.score,
+						name:rs.name,
+						online:online,
+						ready:rs.ready,
+						seatindex:i
+					});
+
+					if(userId == rs.userId){
+						userData = seats[i];
+					}
 				}
-			}
 
-			//通知前端
-			var ret = {
-				errcode:0,
-				errmsg:"ok",
-				data:{
-					roomid:roomInfo.id,
-					conf:roomInfo.conf,
-					numofgames:roomInfo.numOfGames,
-					seats:seats
+				//通知前端
+				var ret = {
+					errcode:0,
+					errmsg:"ok",
+					data:{
+						roomid:roomInfo.id,
+						conf:roomInfo.conf,
+						numofgames:roomInfo.numOfGames,
+						seats:seats
+					}
+				};
+				socket.emit('login_result',ret);
+
+				//通知其它客户端
+				userMgr.broacastInRoom('new_user_comes_push',userData,userId);
+
+				socket.gameMgr = roomInfo.gameMgr;
+
+				//玩家上线，强制设置为TRUE
+				socket.gameMgr.setReady(userId);
+
+				socket.emit('login_finished');
+
+				if(roomInfo.dr != null){
+					var dr = roomInfo.dr;
+					var ramaingTime = (dr.endTime - Date.now()) / 1000;
+					var noticeData = {
+						time:ramaingTime,
+						states:dr.states
+					}
+					userMgr.sendMsg(userId,'dissolve_notice_push',noticeData);
 				}
-			};
-			socket.emit('login_result',ret);
-
-			//通知其它客户端
-			userMgr.broacastInRoom('new_user_comes_push',userData,userId);
-
-			socket.gameMgr = roomInfo.gameMgr;
-
-			//玩家上线，强制设置为TRUE
-			socket.gameMgr.setReady(userId);
-
-			socket.emit('login_finished');
-
-			if(roomInfo.dr != null){
-				var dr = roomInfo.dr;
-				var ramaingTime = (dr.endTime - Date.now()) / 1000;
-				var noticeData = {
-					time:ramaingTime,
-					states:dr.states
-				}
-				userMgr.sendMsg(userId,'dissolve_notice_push',noticeData);
-			}
+			});
 		});
 
 		socket.on('ready',function(data){

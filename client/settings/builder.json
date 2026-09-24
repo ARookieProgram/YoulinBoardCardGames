@@ -5,7 +5,8 @@
     "pathPattern": "",
     "recordPath": "",
     "scheme": "https",
-    "skipRecord": false
+    "skipRecord": false,
+    "packageName": "org.cocos2d.demo"
   },
   "appKey": "",
   "appSecret": "",
@@ -43,5 +44,35 @@
     "subContext": ""
   },
   "xxteaKey": "a56d41f1-8905-45",
-  "zipCompressJs": true
+  "zipCompressJs": true,
+  "mainCompressionType": "default",
+  "mainIsRemote": false,
+  "nativeMd5Cache": true,
+  "android": {
+    "packageName": "org.cocos2d.demo",
+    "REMOTE_SERVER_ROOT": ""
+  },
+  "ios": {
+    "packageName": "org.agent.game",
+    "REMOTE_SERVER_ROOT": "",
+    "ios_enable_jit": true
+  },
+  "mac": {
+    "packageName": "org.cocos2d.demo",
+    "REMOTE_SERVER_ROOT": "",
+    "width": 1280,
+    "height": 720
+  },
+  "win32": {
+    "REMOTE_SERVER_ROOT": "",
+    "width": 1280,
+    "height": 720
+  },
+  "harmonyos-next": {
+    "packageName": "org.cocos2d.demo",
+    "REMOTE_SERVER_ROOT": "",
+    "jsEngine": "JSVM"
+  },
+  "appBundle": false,
+  "agreements": {}
 }

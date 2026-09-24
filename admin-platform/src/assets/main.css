@@ -1,0 +1,73 @@
+/**
+ * 全局样式。
+ *
+ * 只放"跨页面"的东西：重置、布局高度、滚动条、通用工具类。
+ * 组件的样式都写在各自的 `<style scoped>` 里。
+ *
+ * 注意不要在 `#app` 上设 `max-width` / `display: grid`（Vite 模板的默认值），
+ * 后台是全屏布局，那些规则会把页面挤成两栏。
+ */
+
+:root {
+  /* 与 Element Plus 的主色保持一致，方便自定义元素配色。 */
+  --admin-primary: #409eff;
+  --admin-header-height: 60px;
+  --admin-sidebar-width: 220px;
+  --admin-bg: #f5f7fa;
+  --admin-text: #303133;
+  --admin-text-secondary: #909399;
+  --admin-border: #e4e7ed;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial,
+    sans-serif;
+  font-size: 14px;
+  color: var(--admin-text);
+  background-color: var(--admin-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: var(--admin-primary);
+  text-decoration: none;
+}
+
+/* 细滚动条，避免侧边栏出现突兀的粗条。 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgb(0 0 0 / 18%);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+/** 页面内容的统一内边距。 */
+.page-container {
+  padding: 16px;
+}
+
+/** 卡片之间的间距。 */
+.page-container > * + * {
+  margin-top: 16px;
+}
