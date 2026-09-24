@@ -20,6 +20,30 @@ from rest_framework.response import Response
 PAGE_SIZE_MAX = 200
 
 
+def page_payload(*, items: Any, total: int, page: int, page_size: int) -> dict[str, Any]:
+    """构造列表接口的分页 `data` 形状。
+
+    不是每个列表都能交给 DRF 的 `PageNumberPagination`：玩家列表的数据来自
+    玩家库的**只读 SQL**（有自己的 LIMIT/OFFSET），DRF 的 paginator 拿到的是
+    "已经切好的一页"，再包一层会把 total 算成当页条数。所以把形状抽成一个函数，
+    两条路径共用同一份键集，前端不必区分接口是怎么分页的。
+
+    :param items: 当前页数据。
+    :param total: 过滤后的总条数。
+    :param page: 当前页码（从 1 开始）。
+    :param page_size: 每页条数。
+    :return: `{"items", "total", "page", "page_size", "pages"}`。
+    """
+    pages = (total + page_size - 1) // page_size if page_size > 0 else 0
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": pages,
+    }
+
+
 class StandardPagination(PageNumberPagination):
     """按页码分页，返回 `items` / `total` 等固定键。"""
 
@@ -33,13 +57,12 @@ class StandardPagination(PageNumberPagination):
         from .response import ok
 
         return ok(
-            {
-                "items": data,
-                "total": self.page.paginator.count,
-                "page": self.page.number,
-                "page_size": self.get_page_size(self.request),
-                "pages": self.page.paginator.num_pages,
-            }
+            page_payload(
+                items=data,
+                total=self.page.paginator.count,
+                page=self.page.number,
+                page_size=self.get_page_size(self.request),
+            )
         )
 
     def get_paginated_response_schema(self, schema: dict[str, Any]) -> dict[str, Any]:

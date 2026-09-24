@@ -9,6 +9,7 @@
 | --- | --- |
 | `10xxx` | 通用（参数、登录态、权限、资源、服务端） |
 | `11xxx` | 登录与令牌 |
+| `12xxx` | 玩家管理 |
 
 `code == 0` 表示成功，其余一切值都表示失败。前端
 （`admin-platform/src/api/`）按 `code` 弹提示、按 HTTP 状态码决定是否跳登录页。
@@ -54,3 +55,19 @@ ERR_ACCOUNT_DISABLED: Final[int] = 11002
 
 #: 刷新令牌无效或已过期。
 ERR_TOKEN_INVALID: Final[int] = 11003
+
+# ---------------------------------------------------------------- 玩家管理
+
+#: 玩家不存在（玩家库里查不到这个 userid）。
+ERR_PLAYER_NOT_FOUND: Final[int] = 12001
+
+#: 该玩家已处于封禁中，不能重复封禁。
+ERR_PLAYER_ALREADY_BANNED: Final[int] = 12002
+
+#: 该玩家当前不在封禁中，无需解封。
+ERR_PLAYER_NOT_BANNED: Final[int] = 12003
+
+#: 玩家只读数据源不可用（玩家库连不上 / 账号无权限）。
+#: 与"玩家不存在"刻意分开：前者是运维问题，后者是运营输入问题。
+ERR_PLAYER_SOURCE_UNAVAILABLE: Final[int] = 12004
+

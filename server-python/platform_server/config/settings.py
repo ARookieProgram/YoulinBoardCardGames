@@ -75,6 +75,7 @@ INSTALLED_APPS = [
     "corsheaders",
     # 本方
     "apps.accounts",
+    "apps.players",
 ]
 
 MIDDLEWARE = [
@@ -144,6 +145,46 @@ else:
                 "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
             },
         }
+    }
+
+# ---------------------------------------------------------------- 玩家库（只读数据源）
+#
+# 玩家管理要展示 `t_users` 里的账号 / 昵称 / 房卡（`gems`）/ 金币，这些表在**玩家库**
+# `db_scmj` 里。按 `AGENTS.md` §2 第 5 条，这里显式声明一条**只读**数据源：
+#
+# * 管理平台的模型与迁移**不落在这个库上**（本库是 `db_scmj_admin`）；
+# * `apps/players/player_source.py` 是唯一读它的地方，且只执行 SELECT；
+# * 不 import 游戏服的 `utils/db.py`，也不复用它的连接池——那是游戏服的访问层。
+#
+# 默认跟随主库引擎：`PLATFORM_DB_ENGINE=sqlite` 时它也是 sqlite，
+# 保证"没有 MySQL 也能把平台跑起来"这条路径继续成立。
+PLAYER_DB_ENGINE = env("PLATFORM_PLAYER_DB_ENGINE", DB_ENGINE).strip().lower()
+
+if PLAYER_DB_ENGINE == "sqlite":
+    _player_sqlite_path = Path(
+        env("PLATFORM_PLAYER_SQLITE_PATH", str(BASE_DIR / "var" / "player_dev.sqlite3"))
+    )
+    _player_sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+    DATABASES["player"] = {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": str(_player_sqlite_path),
+        # 离线开发库由 `manage.py init_player_dev` 建表并塞样例数据，
+        # 它不是 Django 迁移的一部分（本平台在玩家库里没有任何模型）。
+        "TEST": {"NAME": None},
+    }
+else:
+    DATABASES["player"] = {
+        "ENGINE": "django.db.backends.mysql",
+        "NAME": env("PLATFORM_PLAYER_DB_NAME", "db_scmj"),
+        "USER": env("PLATFORM_PLAYER_DB_USER", env("PLATFORM_DB_USER", "root")),
+        "PASSWORD": env("PLATFORM_PLAYER_DB_PASSWORD", env("PLATFORM_DB_PASSWORD", "li663399")),
+        "HOST": env("PLATFORM_PLAYER_DB_HOST", env("PLATFORM_DB_HOST", "127.0.0.1")),
+        "PORT": env("PLATFORM_PLAYER_DB_PORT", env("PLATFORM_DB_PORT", "3306")),
+        # 只读用途也要显式 utf8mb4：昵称入库前是 Base64，但账号与房间号里可能有四字节字符。
+        "OPTIONS": {"charset": "utf8mb4"},
+        # 生产建议给这个连接配一个只有 SELECT 权限的 MySQL 账号；
+        # 应用层的只读校验（player_source._assert_read_only）只是第二道防线。
+        "TEST": {"NAME": None},
     }
 
 #: 自定义用户模型：**管理平台自己的账号表**，与 `t_accounts` / `t_users` 无关。

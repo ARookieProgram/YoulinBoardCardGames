@@ -3,6 +3,7 @@
 | 前缀 | 归属 |
 | --- | --- |
 | `/api/auth/` | 管理平台登录（本工程） |
+| `/api/players/` | 玩家管理（只读玩家库 + 本平台的封禁记录） |
 | `/api/health/` | 健康检查（给负载均衡/运维用，不需要登录） |
 | `/admin/` | Django 自带的数据库管理站点（**不是**本平台的前端） |
 
@@ -47,6 +48,7 @@ def health(request: HttpRequest) -> Response:
 
 urlpatterns = [
     path("api/auth/", include("apps.accounts.urls")),
+    path("api/players/", include("apps.players.urls")),
     path("api/health/", health, name="health"),
     path("admin/", admin.site.urls),
 ]
