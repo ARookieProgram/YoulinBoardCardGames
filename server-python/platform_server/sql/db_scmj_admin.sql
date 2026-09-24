@@ -20,8 +20,10 @@
 --      因此会有"建完又改"的中转语句，例如 token_blacklist 的 jti 列）；
 --   3. 最终 schema 速查（只是注释，方便阅读，不执行）。
 --
--- 与玩家库 `db_scmj` 完全隔离：本库只放管理平台的账号与登录态，
--- 不含 t_accounts / t_users 等玩家表。
+-- 与玩家库 `db_scmj` 隔离：本库只放管理平台的账号与登录态，
+-- 不含 t_accounts / t_users 等玩家表。玩家数据由平台通过**只读数据源**
+-- （Django 的 DATABASES['player']，只执行 SELECT）读取，不落在本库。
+-- 玩家封禁记录是本平台的表（players_playerban），同理不落到玩家库。
 --
 -- 目标：MySQL 8.0+ / utf8mb4
 -- ============================================================================
@@ -94,6 +96,12 @@ ALTER TABLE `django_admin_log` ADD CONSTRAINT `django_admin_log_user_id_c564eba6
 
   admin.0003_logentry_add_action_flag_choices
 
+  players.0001_initial
+CREATE TABLE `players_playerban` (`id` bigint AUTO_INCREMENT NOT NULL PRIMARY KEY, `player_id` integer UNSIGNED NOT NULL CHECK (`player_id` >= 0), `account` varchar(64) NOT NULL, `player_name` varchar(64) NOT NULL, `action` varchar(16) NOT NULL, `reason` varchar(200) NOT NULL, `operator_name` varchar(150) NOT NULL, `expires_at` datetime(6) NULL, `created_at` datetime(6) NOT NULL, `operator_id` bigint NULL);
+ALTER TABLE `players_playerban` ADD CONSTRAINT `players_playerban_operator_id_56a0a605_fk_accounts_adminuser_id` FOREIGN KEY (`operator_id`) REFERENCES `accounts_adminuser` (`id`);
+CREATE INDEX `players_playerban_player_id_ff9b4afa` ON `players_playerban` (`player_id`);
+CREATE INDEX `idx_player_ban_time` ON `players_playerban` (`player_id`, `created_at` DESC);
+CREATE INDEX `idx_player_ban_action` ON `players_playerban` (`action`, `created_at` DESC);
   sessions.0001_initial
 CREATE TABLE `django_session` (`session_key` varchar(40) NOT NULL PRIMARY KEY, `session_data` longtext NOT NULL, `expire_date` datetime(6) NOT NULL);
 CREATE INDEX `django_session_expire_date_a5c62663` ON `django_session` (`expire_date`);
@@ -158,6 +166,22 @@ SET FOREIGN_KEY_CHECKS=1;
 --   updated_at                   DateTimeField
 -- 组合索引：
 --   idx_admin_role_status        (role, status)
+
+-- 表：`players_playerban`（玩家封禁记录）
+-- 字段：
+--   id                           BigAutoField  [主键, 唯一]
+--   player_id                    PositiveIntegerField  [索引]
+--   account                      CharField
+--   player_name                  CharField
+--   action                       CharField
+--   reason                       CharField
+--   operator_id / → accounts_adminuser ForeignKey  [索引, 可空]
+--   operator_name                CharField
+--   expires_at                   DateTimeField  [可空]
+--   created_at                   DateTimeField
+-- 组合索引：
+--   idx_player_ban_time          (player_id, -created_at)
+--   idx_player_ban_action        (action, -created_at)
 
 -- ============================================================================
 -- 完成。

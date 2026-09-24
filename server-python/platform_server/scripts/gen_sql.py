@@ -222,13 +222,19 @@ def describe_state(model: Any) -> str:
     return "\n".join(lines)
 
 
+#: 管理平台自己的 app（末尾的 schema 速查按这个顺序罗列）。
+#: 新增业务模块时把 label 加进来，否则速查段会漏掉它的表。
+PLATFORM_APP_LABELS: tuple[str, ...] = ("accounts", "players")
+
+
 def state_summary() -> str:
     """列出管理平台自己的表（Django 内置表不重复罗列，它们在 DDL 里一目了然）。"""
     from django.apps import apps
 
     sections = []
-    for model in apps.get_app_config("accounts").get_models():
-        sections.append(describe_state(model))
+    for label in PLATFORM_APP_LABELS:
+        for model in apps.get_app_config(label).get_models():
+            sections.append(describe_state(model))
     return "\n\n".join(sections)
 
 
@@ -259,8 +265,10 @@ def render(per_migration: dict[str, str]) -> str:
 --      因此会有"建完又改"的中转语句，例如 token_blacklist 的 jti 列）；
 --   3. 最终 schema 速查（只是注释，方便阅读，不执行）。
 --
--- 与玩家库 `db_scmj` 完全隔离：本库只放管理平台的账号与登录态，
--- 不含 t_accounts / t_users 等玩家表。
+-- 与玩家库 `db_scmj` 隔离：本库只放管理平台的账号与登录态，
+-- 不含 t_accounts / t_users 等玩家表。玩家数据由平台通过**只读数据源**
+-- （Django 的 DATABASES['player']，只执行 SELECT）读取，不落在本库。
+-- 玩家封禁记录是本平台的表（players_playerban），同理不落到玩家库。
 --
 -- 目标：MySQL 8.0+ / utf8mb4
 -- ============================================================================

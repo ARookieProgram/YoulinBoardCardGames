@@ -28,6 +28,7 @@ EXPECTED_TABLES = {
     "accounts_adminuser",
     "accounts_adminuser_groups",
     "accounts_adminuser_user_permissions",
+    "players_playerban",
     # Django 内置
     "auth_group",
     "auth_group_permissions",
@@ -142,3 +143,60 @@ class SqlScriptTests(SimpleTestCase):
                 self.sql,
                 f"管理平台脚本不应创建玩家表 {player_table}",
             )
+
+
+class PlayerBanSqlCoverageTests(SimpleTestCase):
+    """`players_playerban`（玩家封禁记录）与模型的列覆盖自检。
+
+    与 `SqlScriptTests.test_admin_table_covers_every_model_field` 同一套判据：
+    模型改了却忘记重新生成脚本时，这里必须失败。
+    """
+
+    #: 建表语句里出现的列类型，用来把列名从 DDL 里筛出来。
+    COLUMN_PATTERN = (
+        r"`([a-z_]+)`\s+(?:bigint|integer|varchar|char|bool|datetime|longtext|smallint)"
+    )
+
+    def setUp(self) -> None:
+        self.sql = SQL_FILE.read_text(encoding="utf-8")
+        self.model = apps.get_model("players", "PlayerBan")
+
+    def test_table_covers_every_model_field(self) -> None:
+        """`players_playerban` 的列必须逐个覆盖模型字段。"""
+        expected = {field.column for field in self.model._meta.local_fields}
+        match = re.search(r"CREATE TABLE `players_playerban` \((.*?)\);", self.sql, re.S)
+        self.assertIsNotNone(match, "脚本里没有 players_playerban 的建表语句")
+        assert match is not None
+        actual = set(re.findall(self.COLUMN_PATTERN, match.group(1)))
+        self.assertFalse(
+            expected - actual,
+            f"players_playerban 缺少列 {sorted(expected - actual)}——"
+            "模型改了之后请重新生成脚本（见脚本头的生成命令）",
+        )
+        self.assertFalse(
+            actual - expected,
+            f"players_playerban 多出列 {sorted(actual - expected)}——模型删了字段但脚本没更新",
+        )
+
+    def test_table_has_composite_indexes(self) -> None:
+        """模型上声明的组合索引必须出现在脚本里。"""
+        for index in self.model._meta.indexes:
+            self.assertIn(f"CREATE INDEX `{index.name}`", self.sql, f"脚本缺少索引 {index.name}")
+
+    def test_state_summary_lists_model_fields(self) -> None:
+        """脚本末尾的"最终 schema 速查"也要跟着模型走。
+
+        这里刻意不用左边列名的定宽写法：外键列在速查段里是
+        `operator_id / → accounts_adminuser`，后面跟的不是内建类型名。
+        """
+        for field in self.model._meta.local_fields:
+            self.assertIn(f"--   {field.column} ", self.sql, f"速查段缺少字段 {field.column}")
+
+    def test_ban_table_does_not_reference_player_tables(self) -> None:
+        """封禁记录是本平台的表，不能对玩家表建外键（跨库外键在 MySQL 上非法）。"""
+        match = re.search(r"CREATE TABLE `players_playerban` \((.*?)\);", self.sql, re.S)
+        assert match is not None
+        body = match.group(1)
+        for player_table in ("t_users", "t_accounts"):
+            self.assertNotIn(player_table, body, f"players_playerban 不应引用玩家表 {player_table}")
+
