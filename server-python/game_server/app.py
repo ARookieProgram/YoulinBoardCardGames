@@ -20,7 +20,7 @@ import sys
 from aiohttp import web
 
 from game_server import http_service, socket_service
-from utils import db, http, startup
+from utils import bancheck, db, http, startup
 from utils.config import config_function, load_configs
 from utils.startup import Endpoint
 
@@ -33,6 +33,8 @@ async def main() -> None:
 
     config = config_function(configs, "game_server")()
     mysql_conf = config_function(configs, "mysql")()
+    # 封禁校验（socket 登录 / 进房前问管理平台）。配置见 configs_*.py 的 ban_check()。
+    bancheck.init(config_function(configs, "ban_check")())
 
     await db.init(mysql_conf)
 

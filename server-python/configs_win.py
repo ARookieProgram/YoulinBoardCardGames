@@ -10,6 +10,7 @@
 
 from shared.config import (
     AccountServerConfig,
+    BanCheckConfig,
     GameServerConfig,
     HallServerConfig,
     MysqlConfig,
@@ -21,6 +22,12 @@ HALL_ROOM_PORT = 9002
 
 ACCOUNT_PRI_KEY = "^&*#$%()@"
 ROOM_PRI_KEY = "~!@#$(*&^%$&"
+
+#: 封禁校验：与 `configs_mac.py` 同名同值（两份配置必须同步改），
+#: 且 `BAN_CHECK_PRI_KEY` 必须等于 platform_server 的 `PLATFORM_INTERNAL_KEY`。
+BAN_CHECK_PRI_KEY = "scmj-ban-check-dev-key"
+PLATFORM_IP = "127.0.0.1"
+PLATFORM_PORT = 8000
 
 LOCAL_IP = "localhost"
 
@@ -75,3 +82,16 @@ def game_server() -> GameServerConfig:
         "CLIENT_IP": HALL_IP,
         "CLIENT_PORT": 10000,
     }
+
+
+def ban_check() -> BanCheckConfig:
+    """封禁校验配置（与 `configs_mac.py` 同结构，说明见那一份）。"""
+    return {
+        "ENABLE": True,
+        "HOST": PLATFORM_IP,
+        "PORT": PLATFORM_PORT,
+        "PRI_KEY": BAN_CHECK_PRI_KEY,
+        "TIMEOUT_MS": 1000,
+        "CACHE_TTL_MS": 30000,
+    }
+

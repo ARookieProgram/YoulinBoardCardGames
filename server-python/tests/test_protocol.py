@@ -44,7 +44,15 @@ REFERENCE = {
     "is_room_runing": "59e824f1ad9c154848820c9bbad108c9",
     "get_server_info": "1d94edad3ac1dbd0b710c96def5ab160",
     "guest": "f802ce9e99b551b8a1c4f01fdac33119",
+    # 游戏服 -> 管理平台 platform_server 的内部封禁校验接口
+    # （/api/internal/players/ban-check/，三处实现共用同一条公式）。
+    "ban_check_account": "72977b2a422916d846f1f8b9bb10528d",
+    "ban_check_player_id": "e16efd54aaddb8fb2aada5912ca306cd",
+    "ban_check_both": "d4cb51c910c644dc4b29a94a62dded4b",
 }
+
+#: 封禁校验的共享密钥（`configs_mac.py` 的 `BAN_CHECK_PRI_KEY`，也是开发默认值）。
+BAN_CHECK_PRI_KEY = "scmj-ban-check-dev-key"
 
 
 def _read(path: pathlib.Path) -> str:
@@ -176,6 +184,33 @@ class SignatureTest(unittest.TestCase):
         sign = crypto.md5("guest_123456" + "::ffff:127.0.0.1" + ACCOUNT_PRI_KEY)
         self.assertEqual(sign, REFERENCE["guest"])
 
+    def test_ban_check_signature_by_account(self) -> None:
+        # 游戏服 -> 管理平台：account / player_id 都参与拼接（缺席的按空串），
+        # 且带字段标签，避免两个参数互相错位撞出同一个签名。
+        sign = crypto.md5("account" + "guest_123456" + "player_id" + BAN_CHECK_PRI_KEY)
+        self.assertEqual(sign, REFERENCE["ban_check_account"])
+
+    def test_ban_check_signature_by_player_id(self) -> None:
+        sign = crypto.md5("account" + "player_id" + "9" + BAN_CHECK_PRI_KEY)
+        self.assertEqual(sign, REFERENCE["ban_check_player_id"])
+
+    def test_ban_check_signature_with_both(self) -> None:
+        sign = crypto.md5("account" + "guest_123456" + "player_id" + "9" + BAN_CHECK_PRI_KEY)
+        self.assertEqual(sign, REFERENCE["ban_check_both"])
+
+    def test_ban_check_module_matches_reference(self) -> None:
+        """实现里的拼接必须与上面三条向量一致（而不是只有测试自己算得对）。"""
+        from utils import bancheck  # noqa: PLC0415 —— 只在这个用例里用得到
+
+        self.assertEqual(
+            bancheck.build_sign(account="guest_123456", player_id=None, key=BAN_CHECK_PRI_KEY),
+            REFERENCE["ban_check_account"],
+        )
+        self.assertEqual(
+            bancheck.build_sign(account="", player_id=9, key=BAN_CHECK_PRI_KEY),
+            REFERENCE["ban_check_player_id"],
+        )
+
 
 class ConfigContractTest(unittest.TestCase):
     """Python 没有 TypeScript 那样的编译期配置校验，这里补一条运行期自检。"""
@@ -184,7 +219,7 @@ class ConfigContractTest(unittest.TestCase):
         from utils.config import load_configs
 
         configs = load_configs("configs_mac.py", str(PY_ROOT))
-        for name in ("mysql", "account_server", "hall_server", "game_server"):
+        for name in ("mysql", "account_server", "hall_server", "game_server", "ban_check"):
             function = getattr(configs, name, None)
             self.assertTrue(callable(function), f"configs_mac.py 缺少 {name}()")
 
@@ -193,7 +228,7 @@ class ConfigContractTest(unittest.TestCase):
 
         mac = load_configs("configs_mac.py", str(PY_ROOT))
         win = load_configs("configs_win.py", str(PY_ROOT))
-        for name in ("mysql", "account_server", "hall_server", "game_server"):
+        for name in ("mysql", "account_server", "hall_server", "game_server", "ban_check"):
             self.assertEqual(
                 set(getattr(mac, name)()),
                 set(getattr(win, name)()),

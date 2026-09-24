@@ -8,7 +8,13 @@
 把 `socket.gameMgr` 指向该房间的玩法实现；之后所有业务动作都走 `socket.gameMgr.xxx(...)`。
 
 推送：对局内一律走 `usermgr`；只有登录/连接阶段的几处直接 `socket.emit` 是例外
-（`login_result`×4、`login_finished`、`exit_result`、`game_pong`）。
+（`login_result`×5、`login_finished`、`exit_result`、`game_pong`）。
+
+**封禁拦截**：`login` 在拿到 userId 之后、`usermgr.bind` 之前问一次
+`utils.bancheck`（管理平台的内部只读接口）。被封的玩家拿到 `login_result{errcode: 4}`
+且**不建立连接**——这是最后一道闸门：大厅服那边虽然也拦，但一个已经登录过的会话
+可能还攥着没过期的 token（见 `tokenmgr` 的历史 bug：token 实际不过期）。
+问不到平台时 fail-open 放行。
 
 与 Node 版的差异：
 
@@ -27,7 +33,7 @@ from aiohttp import web
 
 from game_server import robotmgr, roommgr, tokenmgr, usermgr
 from game_server.sio_server import Socket, SocketIOServer
-from utils import crypto, http
+from utils import bancheck, crypto, http
 from utils.jscompat import js_parse_int, now_ms
 
 if TYPE_CHECKING:
@@ -140,6 +146,15 @@ async def _register_handlers(socket: Socket) -> None:
         # 检查房间合法性
         user_id = tokenmgr.get_user_id(token)
         room_id = roommgr.get_user_room(user_id)
+
+        # 封禁校验：最后一道闸门。被封的玩家连 bind 都不做，直接回 login_result。
+        # 这里按 userId 查（客户端只带 token，token 里只有 userId）；大厅服那边是按
+        # account 查的，两条路都在 platform_server 侧落到同一条封禁流水上。
+        ban_status = await bancheck.check_user_id(user_id)
+        if ban_status.banned:
+            print(4)
+            await socket.emit("login_result", {"errcode": 4, "errmsg": bancheck.ban_message(ban_status)})
+            return
 
         usermgr.bind(user_id, socket)
         socket.userId = user_id

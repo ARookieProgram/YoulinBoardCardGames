@@ -13,6 +13,7 @@
 
 from shared.config import (
     AccountServerConfig,
+    BanCheckConfig,
     GameServerConfig,
     HallServerConfig,
     MysqlConfig,
@@ -24,6 +25,15 @@ HALL_ROOM_PORT = 9002
 
 ACCOUNT_PRI_KEY = "^&*#$%()@"
 ROOM_PRI_KEY = "~!@#$(*&^%$&"
+
+#: 封禁校验的共享密钥。**必须与 platform_server 的 PLATFORM_INTERNAL_KEY 一致**：
+#: 不一致时游戏服是 fail-open（照常放行）并打警告日志，表现为"封禁静默失效"。
+#: 生产必须换成随机长串，并同时更新平台侧的环境变量。
+BAN_CHECK_PRI_KEY = "scmj-ban-check-dev-key"
+
+#: 管理平台（platform_server）的地址——封禁校验就打在它身上。
+PLATFORM_IP = "127.0.0.1"
+PLATFORM_PORT = 8000
 
 LOCAL_IP = "localhost"
 
@@ -84,3 +94,27 @@ def game_server() -> GameServerConfig:
         "CLIENT_IP": HALL_IP,
         "CLIENT_PORT": 10000,
     }
+
+
+def ban_check() -> BanCheckConfig:
+    """封禁校验配置（大厅服与游戏服都用它）。
+
+    游戏服在登录 / 进房前调管理平台的内部只读接口
+    `GET /api/internal/players/ban-check/`，问这个玩家有没有被封：
+
+    * `PRI_KEY` 与 platform_server 的 `PLATFORM_INTERNAL_KEY` 必须逐字一致；
+    * 超时 / 连不上 / 平台报错一律 **fail-open 放行**并打警告日志——
+      管理后台挂掉不该让全体玩家登不上游戏；
+    * `CACHE_TTL_MS` 决定"后台点了封禁"到"玩家被拦下"的最大延迟。
+
+    平台没部署时把 `ENABLE` 设为 False，连 HTTP 请求都不会发。
+    """
+    return {
+        "ENABLE": True,
+        "HOST": PLATFORM_IP,
+        "PORT": PLATFORM_PORT,
+        "PRI_KEY": BAN_CHECK_PRI_KEY,
+        "TIMEOUT_MS": 1000,
+        "CACHE_TTL_MS": 30000,
+    }
+

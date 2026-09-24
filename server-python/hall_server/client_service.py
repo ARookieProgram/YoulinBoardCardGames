@@ -8,6 +8,11 @@
 进房签名（`/create_private_room`、`/enter_private_room`）必须与游戏服
 `socket_service.py` 的登录校验逐字一致：
 `md5(roomid + token + time + ROOM_PRI_KEY)`。
+
+**封禁拦截**：`/login` 与三个建房 / 进房接口在动数据库之前先问一次
+`utils.bancheck`（管理平台的内部只读接口）。被拦下时返回
+`errcode = ERR_ACCOUNT_BANNED(3)`，客户端 `UserMgr.onLogin` 认这个码并把 `errmsg`
+原样提示给玩家。问不到平台时是 fail-open 放行，理由见 `utils/bancheck.py`。
 """
 
 from __future__ import annotations
@@ -18,8 +23,12 @@ from typing import Any
 from aiohttp import web
 
 from hall_server import room_service
-from utils import crypto, db, http
+from utils import bancheck, crypto, db, http
 from utils.jscompat import now_ms
+
+#: 账号被封禁时的业务码（客户端 `UserMgr.onLogin` 认这个码弹提示）。
+#: 1 是"参数不全"、2 是历史遗留的 login failed，3 空着，正好给封禁。
+ERR_ACCOUNT_BANNED = 3
 
 #: `config` 由 `create_routes()` 在开始监听前赋值，所有请求处理里必然已经就绪。
 _config: dict[str, Any] | None = None
@@ -29,6 +38,19 @@ def _require_config() -> dict[str, Any]:
     if _config is None:
         raise RuntimeError("client_service.create_routes() 尚未调用")
     return _config
+
+
+async def check_banned(account: str | None) -> web.Response | None:
+    """账号被封禁时返回已经构造好的响应；没被封（或问不到平台）时返回 `None`。
+
+    每个需要拦的接口在"取到 account 之后、查库之前"调它一次即可。
+
+    :param account: 客户端带来的账号。
+    """
+    status = await bancheck.check_account(account)
+    if not status.banned:
+        return None
+    return http.send(ERR_ACCOUNT_BANNED, bancheck.ban_message(status))
 
 
 def check_account(request: web.Request) -> web.Response | None:
@@ -78,6 +100,11 @@ def create_routes(config: dict[str, Any]) -> web.Application:
             ip = ip[7:]
 
         account = http.query_string(request, "account")
+        # 封禁拦截：在查库之前问平台，被拦下就到此为止（客户端按 errcode=3 提示）。
+        banned = await check_banned(account)
+        if banned is not None:
+            return banned
+
         data = await db.get_user_data(account)
         if data is None:
             return http.send(0, "ok")
@@ -138,6 +165,10 @@ def create_routes(config: dict[str, Any]) -> web.Application:
         conf = data.get("conf")
         _ = data.get("account"), data.get("sign")  # 原实现里的 `data.account = null; data.sign = null;`
 
+        banned = await check_banned(account)
+        if banned is not None:
+            return banned
+
         user = await db.get_user_data(account)
         if user is None:
             return http.send(1, "system error")
@@ -196,6 +227,11 @@ def create_routes(config: dict[str, Any]) -> web.Application:
         conf["single"] = 1
         conf_str = json.dumps(conf, separators=(",", ":"))
 
+        # 单人模式也拦：封禁是账号级状态，不该因为"只跟机器人打"就绕过去。
+        banned = await check_banned(account)
+        if banned is not None:
+            return banned
+
         user = await db.get_user_data(account)
         if user is None:
             return http.send(1, "system error")
@@ -237,6 +273,10 @@ def create_routes(config: dict[str, Any]) -> web.Application:
             return failed
 
         account = request.query.get("account")
+        banned = await check_banned(account)
+        if banned is not None:
+            return banned
+
         user = await db.get_user_data(account)
         if user is None:
             return http.send(-1, "system error")

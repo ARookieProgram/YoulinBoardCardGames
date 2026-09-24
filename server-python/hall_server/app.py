@@ -14,7 +14,7 @@ import os
 import sys
 
 from hall_server import client_service, room_service
-from utils import db, http, startup
+from utils import bancheck, db, http, startup
 from utils.config import config_function, load_configs
 from utils.startup import Endpoint
 
@@ -27,6 +27,8 @@ async def main() -> None:
 
     config = config_function(configs, "hall_server")()
     mysql_conf = config_function(configs, "mysql")()
+    # 封禁校验（登录 / 建房 / 进房前问管理平台）。配置见 configs_*.py 的 ban_check()。
+    bancheck.init(config_function(configs, "ban_check")())
 
     await db.init(mysql_conf)
 
