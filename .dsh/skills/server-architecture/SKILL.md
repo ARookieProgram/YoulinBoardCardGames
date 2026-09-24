@@ -66,6 +66,7 @@ description: The Node.js server trio in this project - account/hall/game process
 4. 客户端 → 大厅服  GET /enter_private_room?...                返回 {ip, port, token, roomid, time, sign}
 5. 客户端 → 游戏服  连接 ip:port，emit('login', {token, roomid, time, sign})
 6. 游戏服           校验 md5(roomid + token + time + ROOM_PRI_KEY) == sign，再校验 token 时效
+7. 大厅服 / 游戏服  → 管理平台 GET /api/internal/players/ban-check/（封禁校验；fail-open，见下）
 ```
 
 第 4 步与第 6 步是同一套签名的两侧：拼接顺序、密钥、字段名任意一处不一致，就是**全员登录失败**。
@@ -102,8 +103,8 @@ function loadGameManager(type: string): GameManager {
 | `broacastInRoom(event, data, sender, includingSender)` | 广播给同房间座位（**拼写就是 `broacast`**，不要"顺手修正"） |
 | `kickAllInRoom(roomId)` | 踢出房间内所有连接 |
 
-登录/连接阶段（此时还没有房间可广播）有 7 处**直接 `socket.emit`** 的例外：
-`login_result`(×4)、`login_finished`、`exit_result`、`game_pong`。除此之外不要再写裸 `emit`——
+登录/连接阶段（此时还没有房间可广播）有 8 处**直接 `socket.emit`** 的例外：
+`login_result`(×5)、`login_finished`、`exit_result`、`game_pong`。除此之外不要再写裸 `emit`——
 理由是可读性（读者一眼看出"发给房间"还是"发给个人"），
 **不是因为门禁扫不到**：`check:protocol` 同时识别裸 `emit(`，两种写法都能扫到。
 

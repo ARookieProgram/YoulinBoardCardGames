@@ -48,6 +48,13 @@
 都属于游戏服务端的范畴，必须成对改 `repo:server/` 与 `repo:server-python/`，
 不能在管理平台侧实现。
 
+**反方向也有一条通道**：游戏服要读封禁状态时走 `/api/internal/players/ban-check/`
+（`apps/players/internal.py`）——共享密钥认证、只读、走 HTTP，**不要**让游戏服直连
+`db_scmj_admin`（那会把本平台的表结构变成对外契约）。密钥是
+`PLATFORM_INTERNAL_KEY`，与游戏服 `ban_check()["PRI_KEY"]` 必须逐字一致；
+不一致时游戏服 fail-open，表现为"封禁静默失效"。`/api/internal/` 前缀是信任边界，
+部署时应在反向代理上限制成只允许游戏服网络访问。
+
 `repo:server-python/platform_server/tests/test_auth.py::AccountIsolationTests`
 把第 1、2 条钉成了断言；`tests/test_players.py::PlayerSourceIsolationTests`
 把上面这套玩家库边界钉成了断言。
@@ -62,7 +69,8 @@ platform_server/
 ├─ config/                       工程配置（settings 是唯一配置来源）
 ├─ apps/common/                  响应外壳 / 错误码 / 异常 / 分页 / IP
 ├─ apps/accounts/                管理平台账号体系（模型 / 序列化 / 视图 / 权限）
-├─ apps/players/                 玩家管理（只读玩家库 player_source + 封禁流水 PlayerBan）
+├─ apps/players/                 玩家管理（只读玩家库 player_source + 封禁流水 PlayerBan
+│                                 + 给游戏服的内部校验 internal.py）
 ├─ sql/db_scmj_admin.sql         **生成产物**：建库脚本（不要手改，见 §4.4）
 └─ scripts/
     ├─ run.sh / serve.py         启停脚本（start/stop/restart/status/logs/init/check）
@@ -108,6 +116,8 @@ AssertionError: .accepted_renderer not set on Response
 `apps/accounts/error_codes.py`、`apps/players/error_codes.py` 都只是转出口，
 不是第二份定义。新增登录相关码加在 `11xxx` 段，玩家管理相关码加在 `12xxx` 段；
 前端对应常量在 `repo:admin-platform/src/api/types.ts` 的 `ErrorCode`，要同步改。
+内部接口（`/api/internal/`）的签名失败复用通用 `10003`、未配置密钥用 `10500`，
+没有单开新码——它们不是给玩家看的业务错误。
 
 ### 4.4 `sql/db_scmj_admin.sql` 是**生成产物**，不要手改
 
@@ -143,13 +153,13 @@ AssertionError: .accepted_renderer not set on Response
 ```bash
 cd server-python/platform_server
 
-# 1) 接口测试（不需要 MySQL）。82 项（登录 29 + 玩家管理 40 + 建库脚本自检 13）。
+# 1) 接口测试（不需要 MySQL）。97 项（登录 29 + 玩家管理 55 + 建库脚本自检 13）。
 PLATFORM_DB_ENGINE=sqlite ../.venv/bin/python manage.py test
 
 # 1b) 建库 SQL 是否与迁移一致（改了模型必跑）
 ./scripts/check_sql_fresh.sh
 
-# 2) 真实 HTTP 端到端。48 项（登录 24 + 玩家管理 24）。
+# 2) 真实 HTTP 端到端。58 项（登录 24 + 玩家管理 24 + 内部校验接口 10）。
 #    启停一律用 ./scripts/run.sh（等价于 runserver --noreload + 健康检查）：
 ./scripts/run.sh                       # 启动（等健康检查通过）
 ./scripts/e2e_login_check.sh           # 打真实接口

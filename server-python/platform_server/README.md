@@ -68,6 +68,8 @@ server-python/platform_server/
 │       ├─ serializers.py       入参校验 + 出参形状（含预留端点的契约）
 │       ├─ views.py             列表 / 概览 / 详情 / 封禁 / 解封 / 两个预留入口
 │       ├─ urls.py              /api/players/ 路由
+│       ├─ internal.py          给游戏服的内部只读校验接口（共享密钥，见 §6.5）
+│       ├─ urls_internal.py     /api/internal/players/ 路由
 │       ├─ exceptions.py        玩家相关的类型化异常（12001~12004）
 │       ├─ admin.py             封禁流水的**只读** admin 视图
 │       └─ management/commands/init_player_dev.py  SQLite 玩家库的样例数据（仅开发）
@@ -77,12 +79,12 @@ server-python/platform_server/
 │   ├─ serve.py                  run.sh 的实现（只依赖标准库）
 │   ├─ gen_sql.py                生成上面的 SQL（不需要 MySQL）
 │   ├─ check_sql_fresh.sh        校验 SQL 是否与迁移一致（重新生成后比对）
-│   └─ e2e_login_check.sh        真实 HTTP 端到端验收（登录 24 项 + 玩家管理 24 项）
+│   └─ e2e_login_check.sh        真实 HTTP 端到端验收（58 项：登录 / 玩家管理 / 内部接口）
 ├─ tests/test_auth.py            登录闭环接口测试（29 项）
-├─ tests/test_players.py         玩家管理接口 + 只读隔离测试（40 项）
+├─ tests/test_players.py         玩家管理 + 内部封禁校验 + 只读隔离测试（55 项）
 ├─ tests/test_sql_script.py      建库脚本的内容自检（13 项）
-├─ 合计 `manage.py test`          82 项
-└─ scripts/e2e_login_check.sh   真实 HTTP 端到端验收（登录 24 项 + 玩家管理 24 项）
+├─ 合计 `manage.py test`          97 项
+└─ scripts/e2e_login_check.sh   真实 HTTP 端到端验收（58 项：登录 / 玩家管理 / 内部接口）
 ```
 
 ---
@@ -324,6 +326,7 @@ cd server-python/platform_server
 | `POST` | `/api/players/<id>/unban/` | 管理员及以上 | 解封 |
 | `GET` | `/api/players/<id>/games/` | 是 | **预留**：对局记录（当前返回 `reserved: true`） |
 | `GET` | `/api/players/<id>/recharges/` | 是 | **预留**：充值记录（同上） |
+| `GET` | `/api/internal/players/ban-check/` | **共享密钥** | **内部接口**：给游戏服查封禁状态（不走 JWT，见 §6.5） |
 | — | `/admin/` | Django session | Django 自带的数据库管理站点（运维兜底，不是本平台前端） |
 
 
@@ -383,7 +386,7 @@ cd server-python/platform_server
 | 数据 | 来源 | 读写 |
 | --- | --- | --- |
 | 玩家账号 / 昵称 / 房卡 `gems` / 金币 / 等级 / 所在房间 | **玩家库 `db_scmj` 的 `t_users`** | **只读**（只执行 SELECT） |
-| 封禁状态与封禁流水 | **管理平台库 `db_scmj_admin` 的 `players_playerban`** | 读写（本平台自己的表） |
+| 封禁状态与封禁流水 | **管理平台库 `db_scmj_admin` 的 `players_playerban`** | 读写（本平台自己的表）；游戏服通过内部接口只读它，见 §6.5 |
 | 管理员账号 | `db_scmj_admin` 的 `accounts_adminuser` | 读写 |
 
 实现位置：
@@ -429,10 +432,42 @@ cd server-python/platform_server
 * **重复操作有明确错误码**：已在封禁中再封 → `12002`；不在封禁中解封 → `12003`。
 * **解封不依赖玩家库**：玩家库连不上时依然能解封（账号 / 昵称取最近一条流水快照），
   避免数据源故障把人锁死在"封着"的状态。
-* ⚠️ **本期封禁只在管理平台侧生效，游戏服登录链路不做拦截**。
-  被封的玩家**仍然可以登录游戏**。要做真正的登录拦截，需要改
-  `server/` 与 `server-python/` 两条登录链路（成对改）并确定封禁状态的共享方式——
-  那是一次独立的改动，不在本期范围内。
+* ✅ **封禁会真的拦住玩家**：游戏服（大厅服 + 游戏服）在登录 / 建房 / 进房前会调
+  §6.5 的内部校验接口，被封的账号进不来。生效延迟最多一个缓存 TTL（默认 30 秒）。
+* **不打断进行中的对局**：封禁在"登录 / 进房"这一刻生效，不会把正在打牌的玩家踢下线
+  （那需要平台反向推送到游戏服，是另一次改动）。
+
+### 6.5 游戏服联动：内部只读校验接口
+
+`GET /api/internal/players/ban-check/?account=<account>&sign=<md5>`
+（或 `?player_id=<id>&sign=<md5>`）是**游戏服进程**调用的接口，不走 JWT：
+
+| 项 | 说明 |
+| --- | --- |
+| 调用方 | 大厅服（`/login`、`/create_private_room`、`/enter_private_room`）与游戏服（socket `login`） |
+| 认证 | 共享密钥：`sign = md5("account" + account + "player_id" + player_id + PRI_KEY)` |
+| 密钥 | 平台侧 `PLATFORM_INTERNAL_KEY` ↔ 游戏服侧 `ban_check()["PRI_KEY"]`，**必须逐字一致** |
+| 返回 | `{account, player_id, known, banned, reason, expires_at}` |
+| 实现 | 平台 `apps/players/internal.py`；游戏服 `server-python/utils/bancheck.py`、`server/utils/bancheck.ts` |
+
+三条你必须知道的运行语义：
+
+1. **fail-open**：游戏服超时 / 连不上 / 拿到非 0，一律**放行**并打警告日志。
+   管理后台是运营工具，它挂掉不该让全体玩家登不上游戏——代价是平台故障期间
+   被封玩家能临时进来。这个取舍是刻意选的（见 `server-python/utils/bancheck.py`）。
+2. **密钥不一致 = 封禁静默失效**：平台回 `10003`，游戏服 fail-open 放行，
+   只在游戏服日志里留一行警告。**排查"封了没生效"先看这行日志，再核对两侧密钥。**
+3. **缓存**：游戏服按 `CACHE_TTL_MS`（默认 30 秒）缓存结果，正负都缓存；
+   失败后有 5 秒冷却窗口，避免平台挂掉时每次登录都白等一个超时。
+   所以"后台点封禁"到"玩家被拦下"最多滞后一个 TTL。
+
+**信任边界**：`/api/internal/` 不走 JWT、不做 CSRF，只认密钥。部署时应在反向代理上
+把该前缀限制成只允许游戏服所在网络访问，不要暴露到公网。密钥留空时接口**拒绝服务**
+（`10500`）而不是放行——未配置密钥的"内部接口"等于一个人人可查的公开接口。
+
+契约由三处参考向量钉住：`server-python/tests/test_protocol.py`、
+`platform_server/tests/test_players.py::InternalBanCheckTests`、
+`tools/lib/smoke.mjs`（Node 侧），任何一处改了拼接顺序都会同时红。
 
 ### 6.4 预留入口：对局记录 / 充值记录
 
@@ -462,10 +497,11 @@ cd server-python/platform_server
 PLATFORM_DB_ENGINE=sqlite ../.venv/bin/python manage.py test
 ```
 
-82 项（`test_auth` 29 + `test_players` 40 + `test_sql_script` 13），覆盖登录成功/失败、
+97 项（`test_auth` 29 + `test_players` 55 + `test_sql_script` 13），覆盖登录成功/失败、
 账号枚举防护、禁用账号、大小写、IP 记录、`/me/`、令牌轮换与黑名单、退出登录、
 **账号体系隔离**、`seed_admin`、健康检查、玩家列表/搜索/过滤/分页、封禁解封与业务码、
-预留入口契约、**玩家库只读隔离**，以及建库脚本的内容自检。
+预留入口契约、**玩家库只读隔离**、**内部封禁校验接口（签名向量 / fail-open / 不配密钥就拒服务）**，
+以及建库脚本的内容自检。
 
 默认（不带 `PLATFORM_DB_ENGINE=sqlite`）会连 MySQL 建测试库，
 这样能顺带验证真实 MySQL 下的建表与查询。玩家只读数据源用的是它自己的测试库
@@ -499,7 +535,7 @@ cd server-python/platform_server
 ./scripts/e2e_login_check.sh http://host:port    # 指定地址
 ```
 
-48 项断言，分两段：
+58 项断言，分三段：
 
 1. **登录闭环（24 项）**：健康检查 → 登录 → 大小写 → 口令错误 → 账号不存在 →
    `/me/` → 令牌轮换与旧令牌失效 → 退出登录；
@@ -507,9 +543,13 @@ cd server-python/platform_server
    非法参数 `10001` → 不存在时 `12001` → 两个预留入口的 `reserved` 契约 →
    详情 → 封禁 → 重复封禁 `12002` → 封禁状态过滤 → 解封 → 重复解封 `12003`。
 
-> 玩家那一段需要玩家库里有**未被封禁**的玩家。真实 `db_scmj` 为空时，脚本会
-> **跳过**依赖玩家行的 11 项断言并打印一行提示，不会把它们算成失败
-> （此时总共通过 12 + 24 = 36 项）。
+3. **内部封禁校验接口（10 项）**：无签名 / 错误签名必须 403 + `10003`（不能放行）→
+   按 `account` 与按 `player_id` 查询 → 封禁后 `banned=true` 且回带原因 → 解封后 `false`。
+   这一段用的是**与游戏服完全相同的签名公式**（密钥可用 `E2E_INTERNAL_KEY` 覆盖），
+   所以它同时验证了"平台与游戏服两边拼出来的签名一致"。
+
+> 第 2、3 段需要玩家库里有**未被封禁**的玩家。真实 `db_scmj` 为空时，脚本会
+> **跳过**依赖玩家行的断言（11 + 7 项）并打印一行提示，不会把它们算成失败。
 
 它比单元测试更贴近真实：**上面那个 10001/11001 的偏差就是它先发现的**
 （单元测试当时只断言了文案，没断言 `code`）。
@@ -550,6 +590,8 @@ Django 测试需要 `manage.py test` 来配置 settings 与建测试库。
 * ❌ 不要让管理平台签发游戏 token —— 两套 token 的算法与信任域不同；
 * ❌ 不要往玩家库**写**任何东西（包括封禁状态）—— 玩家库只有
   `apps/players/player_source.py` 这一条只读通道；
+* ✅ 游戏服要读封禁状态时走 `/api/internal/players/ban-check/`（共享密钥、只读），
+  不要让游戏服直连 `db_scmj_admin`——那会把平台的表结构变成对外契约；
 * ✅ 需要展示玩家数据时，走账号服/大厅服已有的 HTTP 接口，或**另外**加一个
   只读的数据源，并在文档里写清楚数据来源与权限边界 ——
   玩家管理就是这么做的，来源与边界见 §6。
@@ -564,8 +606,9 @@ Django 测试需要 `manage.py test` 来配置 settings 与建测试库。
   （错误码 `10005` 已经预留）。
 * **未做登录/管理操作的落库审计**。目前只有登录、退出、封禁、解封打日志；
   封禁本身有流水表（`players_playerban`），但"谁改了哪个管理员"这类操作没有落库流水。
-* **封禁不影响游戏登录**。本期封禁只落在管理平台侧，游戏服不拦截，
-  被"封禁"的玩家仍然能进游戏。要做真拦截需改两套服务端的登录链路（见 §6.3）。
+* **封禁是 fail-open 的**。游戏服调不通本平台时会放行并在日志里告警（见 §6.5），
+  所以平台 / 网络故障期间被封玩家能临时进游戏；同时封禁最迟在一个缓存 TTL（30 秒）
+  内生效，且**不会打断正在进行的对局**（只在登录 / 进房那一刻拦）。
 * **`/admin/` 与 JWT 是两套认证**。前者是 Django session（仅 `is_staff` 可进），
   后者是 JWT。两者都只认 `AdminUser` 表，但改权限模型时要同时想到这两条路径。
 * **access 无法主动吊销**。这是 JWT 的固有限制，缓解手段是把有效期调短。

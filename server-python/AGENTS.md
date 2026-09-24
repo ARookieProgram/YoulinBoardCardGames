@@ -37,7 +37,7 @@ server-python/
 │   ├─ domain.py                （对应 types/domain.ts，含 GameManagerProtocol）
 │   ├─ protocol.py              （对应 types/protocol.ts，含 39 个推送事件名清单）
 │   └─ db_rows.py               （对应 types/db_rows.ts）
-├─ utils/                       ← crypto / config / db / http / startup / jscompat
+├─ utils/                       ← crypto / config / db / http / startup / jscompat / bancheck
 ├─ account_server/              ← 账号服 :9000，含 dealer_api :12581
 ├─ hall_server/                 ← 大厅服 :9001（客户端）、:9002（游戏服上报）
 ├─ game_server/                 ← 游戏服 :10000（Socket.IO）、:9003（HTTP）
@@ -217,6 +217,26 @@ if game.conf.menqing:           # 房间开门清时才赋值，值可能是 Fal
 要补 Node 版，按 `robotmgr.py` 的策略与上面四个钩子点逐个照搬即可；
 补完请同步删掉 README §7.5 与本文这一节的"仅 Python"说明。
 
+## 4.7 封禁校验：向管理平台问一句（与 Node 版成对）
+
+大厅服的 `/login`、`/create_private_room`、`/enter_private_room`（含仅 Python 有的
+`/create_single_room`）与游戏服的 socket `login` 都会先调一次管理平台
+（`platform_server`，默认 127.0.0.1:8000）的内部只读接口：
+
+    GET /api/internal/players/ban-check/?account=..&sign=md5("account"+account+"player_id"+player_id+PRI_KEY)
+
+实现是 `utils/bancheck.py`，与 `server/utils/bancheck.ts` **行为与签名必须逐字一致**；
+平台侧是 `apps/players/internal.py`。三条运行语义（改代码前先读模块文档）：
+
+* **fail-open**：超时 / 连不上 / 平台返回非 0 → 放行 + 警告日志（管理后台挂掉不该让
+  全体玩家登不上游戏）；
+* **缓存**：成功结果按 `CACHE_TTL_MS`（默认 30 秒）缓存，失败后有 5 秒冷却；
+* **密钥**：`ban_check()["PRI_KEY"]` 必须等于平台的 `PLATFORM_INTERNAL_KEY`，
+  不一致表现为"封禁静默失效"（只有警告日志）。
+
+签名参考向量钉在 `tests/test_protocol.py::SignatureTest`（Node 侧同一条向量在
+`tools/lib/smoke.mjs`），行为钉在 `tests/test_bancheck.py`。
+
 ## 5. 改完怎么验证
 
 ### 5.1 离线测试（零依赖，必跑）
@@ -284,6 +304,7 @@ npm run check:protocol    # 事件名双向比对（Node 侧与 client 侧）
   因为 import `game_server.app` 会去绑端口；这一半永远会跑；
 * 有可用解释器时（优先 `.venv/bin/python`）再跑本目录 `tests/` 里的 stdlib unittest；
   缺依赖时报 **skipped 并说明原因**，绝不装作通过——与 `types` 缺 `tsc` 时同一套约定。
+  当前 103 项（含 `tests/test_bancheck.py` 的封禁校验与 `test_protocol.py` 的签名向量）。
 
 所以提交前的完整判据是 `npm run verify` **全绿**（当前 `types` 有一处**既有**失败：
 `client/creator.d.ts` 第 20915 行缺一个逗号，与本目录无关）。
@@ -320,8 +341,8 @@ return importlib.import_module(module)
 
 对局内的推送**统一**走 `game_server/usermgr.py`：
 `send_msg` / `broacast_in_room`（拼写就是 `broacast`）/ `kick_all_in_room`。
-只有登录/连接阶段的 7 处直接 `socket.emit` 是例外
-（`login_result`×4、`login_finished`、`exit_result`、`game_pong`）。
+只有登录/连接阶段的 8 处直接 `socket.emit` 是例外
+（`login_result`×5、`login_finished`、`exit_result`、`game_pong`）。
 
 新增或重命名事件名之后必须跑 `npm run check:protocol`
 （它比对 Node 服务端与客户端两侧的词汇表），并同步

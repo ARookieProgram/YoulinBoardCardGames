@@ -16,14 +16,16 @@
 | `repo:client/` | Cocos Creator **2.4.15**（`cocos2d-html5`） | 客户端。`assets/scripts/` 下是手写的 **TypeScript**（ES6 `class` + `cc._decorator` 的 `@ccclass` / `@property`，由 Creator 自己编译）；`.fire` 场景由 Creator 编辑器产出 |
 | `repo:server/` | Node.js + **TypeScript（`strict: true`，`tsc` 编译到 `server/dist/`）** + Express + Socket.IO + MySQL（`mysql2` 驱动） | 服务端。源码是 `.ts`，跑的是编译产物；三个独立进程：账号服 / 大厅服 / 游戏服 |
 | `repo:server-python/` | **Python 3.14** + `asyncio` + `aiohttp` + `python-socketio` 协议层（自研）+ `aiomysql` | 服务端的 Python 重写版。同样的三个进程、同样的 6 个端口、同样的 HTTP 路由 / md5 签名 / Socket.IO 事件名 / MySQL schema，**与现有客户端和数据库完全兼容**；契约见 `repo:server-python/AGENTS.md` |
-| `repo:server-python/platform_server/` | **Python 3.14 + Django 6.1 + DRF + SimpleJWT** | **游戏管理平台的后端**（:8000）。独立的库 `db_scmj_admin`、独立的账号表 `AdminUser`，**与玩家账号体系完全隔离**；玩家数据（账号 / 昵称 / 房卡 `gems`）通过一条**只读数据源**读玩家库 `db_scmj`，封禁记录只落本平台的库；契约见 `repo:server-python/platform_server/AGENTS.md` |
+| `repo:server-python/platform_server/` | **Python 3.14 + Django 6.1 + DRF + SimpleJWT** | **游戏管理平台的后端**（:8000）。独立的库 `db_scmj_admin`、独立的账号表 `AdminUser`，**与玩家账号体系完全隔离**；玩家数据（账号 / 昵称 / 房卡 `gems`）通过一条**只读数据源**读玩家库 `db_scmj`，封禁记录只落本平台的库；并向游戏服提供内部只读校验接口；契约见 `repo:server-python/platform_server/AGENTS.md` |
 | `repo:admin-platform/` | **Vue 3 + TypeScript + Element Plus + Pinia + Vue Router + Vite** | **游戏管理平台的前端**（dev :5173）。登录页 / 登录态 / 请求层 / 路由守卫 / 后台骨架 / **玩家管理**（查询、房卡展示、封禁解封、对局与充值记录的预留入口）；只与 `platform_server` 通信，与 `client/` 无关 |
 
 **管理平台是独立的一块，不要与游戏服务端混在一起**：它跑在 8000 端口、用独立的库与账号表，
 玩家账号无法登录管理平台，管理员账号也不能当游戏账号用。玩家库只有
-`apps/players/player_source.py` 这一条**只读**通道（只执行 SELECT），
-封禁状态落在管理平台自己的库，游戏服登录链路不读它。隔离红线与"能同时运行"的端口表见
-`repo:server-python/platform_server/AGENTS.md` §2 与 `repo:server-python/platform_server/README.md` §1 / §6。
+`apps/players/player_source.py` 这一条**只读**通道（只执行 SELECT）；封禁状态落在管理平台
+自己的库，游戏服通过平台的内部只读接口 `/api/internal/players/ban-check/`（共享密钥、
+fail-open）在登录 / 进房时查询——**方向是反的，但同样不走库直连**。隔离红线与"能同时运行"
+的端口表见 `repo:server-python/platform_server/AGENTS.md` §2 与
+`repo:server-python/platform_server/README.md` §1 / §6。
 
 
 **客户端源码是 TypeScript，组件写法已经统一到 ES6 `class` + `cc._decorator` 装饰器**
@@ -58,7 +60,9 @@ client (Cocos Creator)
    │  Socket.IO ──────────►  游戏服 game_server      :10000  对局内全部实时协议
    │  HTTP  ──────────────►  游戏服 http_service     :9003   大厅服内部调用（建房/进房），需签名
    │
-   └────────────►  MySQL  db_scmj（`repo:server/sql/db_babykylin.sql`）
+   ├────────────►  MySQL  db_scmj（`repo:server/sql/db_babykylin.sql`）
+   │
+   └────────────►  管理平台 platform_server  :8000   封禁校验（内部只读接口，需共享密钥）
 
 admin-platform (Vue 3 + Element Plus)
    │
@@ -183,11 +187,11 @@ npm run test:tools             # 校验检查器自身
 
 | 检查 | 回答的问题 |
 | --- | --- |
-| `syntax` | 80 个一方脚本是否都能被解析（client 47 / server 33）：`.ts` 统一用 Node 内置 `module.stripTypeScriptTypes` 擦类型解析（**只解析不执行**，且顺带强制只用可擦除语法），`.js` 用 `vm.Script` 编译。客户端的 47 = `assets/scripts/` 下 46 个一方脚本 + Creator 自动生成的 `assets/migration/` 助手。另外 `server/` 与 `client/assets/scripts/` 下都不允许残留一方 `.js`（vendored 的 `3rdparty/` 与自动生成的 `assets/migration/` 除外） |
+| `syntax` | 81 个一方脚本是否都能被解析（client 47 / server 34）：`.ts` 统一用 Node 内置 `module.stripTypeScriptTypes` 擦类型解析（**只解析不执行**，且顺带强制只用可擦除语法），`.js` 用 `vm.Script` 编译。客户端的 47 = `assets/scripts/` 下 46 个一方脚本 + Creator 自动生成的 `assets/migration/` 助手。另外 `server/` 与 `client/assets/scripts/` 下都不允许残留一方 `.js`（vendored 的 `3rdparty/` 与自动生成的 `assets/migration/` 除外） |
 | `types` | `server/` 与 `client/` 是否守住类型契约：① 无依赖的 **no-any 审计**扫一遍所有一方 `.ts`（注释先抹掉、保留行号），`: any` / `as any` / `<any>` / `@ts-ignore` / `@ts-expect-error` 一律算失败；同一遍扫描还会在 `client/` 里查 **`cc.Class(`**（客户端组件必须是 ES6 `class` + `@ccclass` / `@property`）和 **`module.exports = <类名>;`**（类文件漏了它，`require("X")` 拿到的是 `exports.default`，运行时报 "X is not a constructor"）；② 装了 `server/node_modules/typescript` 时再分别跑两棵树的 `tsc --noEmit`（strict，客户端用 `client/tsconfig.json`）。缺编译器时 ② 报 skipped，① 仍然执行 |
 | `harness` | 本文档与 `.dsh/skills/` 是否能被 Harness 真正发现、格式是否合法 |
 | `protocol` | Socket.IO 事件词汇表是否两端对齐 |
-| `smoke` | 听牌/胡牌判定、花色分类、MD5 与 Base64（**不含算番**，番值无离线判据） |
+| `smoke` | 听牌/胡牌判定、花色分类、MD5 与 Base64、以及**封禁校验的签名向量**（游戏服 ↔ 管理平台之间唯一的运行时契约；**不含算番**，番值无离线判据） |
 | `python` | `server-python/` 是否可解析、离线测试是否全绿：① **无依赖**地 `ast.parse` 每一个一方 `.py`（只解析不执行——import `game_server.app` 会去绑端口）；② 有可用解释器（优先 `server-python/.venv/bin/python`）时跑 `tests/` 的 stdlib unittest，覆盖听牌判定、md5/Base64 向量、跨实现的协议事件名与签名参考向量、以及两份 gamemgr 的**整局四人牌模拟**。缺依赖时报 skipped 并说明原因，不会装作通过 |
 | `selftest` | 检查器自身的解析逻辑是否被改动破坏 |
 

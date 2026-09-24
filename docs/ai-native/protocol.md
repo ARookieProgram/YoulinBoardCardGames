@@ -68,7 +68,7 @@
 
 | 事件 | 数据 | 说明 |
 | --- | --- | --- |
-| `login` | `{token, roomid, time, sign}` | 进房握手；校验 `md5(roomid+token+time+ROOM_PRI_KEY)` 与 token 时效 |
+| `login` | `{token, roomid, time, sign}` | 进房握手；校验 `md5(roomid+token+time+ROOM_PRI_KEY)` 与 token 时效，再调管理平台的 `/api/internal/players/ban-check/` 做封禁校验（被封回 `login_result{errcode:4}` 且不建连接；问不到平台则 fail-open 放行） |
 | `ready` | — | 准备 / 取消准备 |
 | `huanpai` | `{p1, p2, p3}` | 换三张（仅 `hsz` 开启的房间） |
 | `dingque` | 花色 `0/1/2` | 定缺（筒/条/万） |
@@ -101,6 +101,7 @@
 | 账号服（代理） | `repo:server/account_server/dealer_api.ts` | `/get_user_info` 等 |
 | 大厅服 | `repo:server/hall_server/client_service.ts` | `/login`、`/create_user`、`/create_private_room`、`/enter_private_room`、`/get_history_list`、`/get_games_of_room`、`/get_detail_of_game`、`/get_user_status`、`/get_message`；`/create_single_room`（单人模式，**目前只有 Python 版 `repo:server-python/hall_server/client_service.py` 有**） |
 | 游戏服（内部） | `repo:server/game_server/http_service.ts` | `/get_server_info`、`/create_room`、`/enter_room`、`/is_room_runing`（**四个都校验 `sign`**；`/get_server_info` 用 `md5(serverid + ROOM_PRI_KEY)`） |
+| 管理平台（内部） | `repo:server-python/platform_server/apps/players/internal.py` | `/api/internal/players/ban-check/`（游戏服 → 平台，封禁校验；`sign = md5("account" + account + "player_id" + player_id + PRI_KEY)`，密钥是平台 `PLATFORM_INTERNAL_KEY` ↔ 游戏服 `ban_check()["PRI_KEY"]`） |
 
 > `/create_single_room` 复用 `/create_private_room` 的签名与返回结构，只在 conf 里强制补一个
 > `single: 1`；Node 版大厅服没有这个路由，客户端对 Node 版点"单人模式"会拿到 404。
