@@ -177,6 +177,55 @@ else
   check "重复解封 code=12003" "12003" "$(jq_get "$(printf '%s' "$again2" | sed '$d')" "['code']")"
 fi
 
+echo "== 10. 内部封禁校验接口（游戏服调的就是它）=="
+# 共享密钥必须与游戏服配置 ban_check()["PRI_KEY"] 一致；两边都是开发默认值时可不用传。
+INTERNAL_KEY="${E2E_INTERNAL_KEY:-scmj-ban-check-dev-key}"
+ban_sign() { # ban_sign <拼接串> → md5
+  python3 -c "import hashlib,sys;print(hashlib.md5(sys.argv[1].encode()).hexdigest())" "$1"
+}
+
+# 10.1 认证：没有签名、签名不对都必须拒绝，而不是放行
+nosign=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/internal/players/ban-check/?account=guest_123456")
+check "内部接口无签名 HTTP 403" "403" "$nosign"
+nosign_body=$(curl -s "$BASE/api/internal/players/ban-check/?account=guest_123456")
+check "内部接口无签名 code=10003" "10003" "$(jq_get "$nosign_body" "['code']")"
+wrongsign=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/internal/players/ban-check/?account=guest_123456&sign=deadbeef")
+check "内部接口错误签名 HTTP 403" "403" "$wrongsign"
+
+# 10.2 未登录也能调（调用方是游戏服进程，不走 JWT）
+target=$(curl -s "$BASE/api/players/?ban_state=normal&page_size=1" -H "Authorization: Bearer $access2")
+target_id=$(printf '%s' "$target" | python3 -c \
+  "import json,sys;d=json.load(sys.stdin);items=d['data']['items'];print(items[0]['player_id'] if items else '')" \
+  2>/dev/null || echo "")
+target_account=$(printf '%s' "$target" | python3 -c \
+  "import json,sys;d=json.load(sys.stdin);items=d['data']['items'];print(items[0]['account'] if items else '')" \
+  2>/dev/null || echo "")
+
+if [ -z "$target_id" ]; then
+  printf '  \033[33m!\033[0m 玩家库没有可用玩家，跳过内部接口的查询断言\n'
+else
+  by_account=$(curl -s "$BASE/api/internal/players/ban-check/?account=$target_account&sign=$(ban_sign "account${target_account}player_id${INTERNAL_KEY}")")
+  check "按 account 查询 code=0" "0" "$(jq_get "$by_account" "['code']")"
+  check "按 account 回带同一 player_id" "$target_id" "$(jq_get "$by_account" "['data']['player_id']")"
+
+  sign_id=$(ban_sign "accountplayer_id${target_id}${INTERNAL_KEY}")
+  by_id=$(curl -s "$BASE/api/internal/players/ban-check/?player_id=$target_id&sign=$sign_id")
+  check "按 player_id 查询 code=0" "0" "$(jq_get "$by_id" "['code']")"
+  check "未封禁的人 banned=false" "False" "$(jq_get "$by_id" "['data']['banned']")"
+
+  # 10.3 封禁 → 内部接口必须立刻反映（游戏服据此拦人）
+  curl -s -X POST "$BASE/api/players/$target_id/ban/" -H "Authorization: Bearer $access2" \
+    -H 'Content-Type: application/json' -d '{"reason":"e2e 内部接口验收"}' >/dev/null
+  banned_view=$(curl -s "$BASE/api/internal/players/ban-check/?player_id=$target_id&sign=$sign_id")
+  check "封禁后 banned=true" "True" "$(jq_get "$banned_view" "['data']['banned']")"
+  check "封禁后回带原因" "e2e 内部接口验收" "$(jq_get "$banned_view" "['data']['reason']")"
+
+  curl -s -X POST "$BASE/api/players/$target_id/unban/" -H "Authorization: Bearer $access2" \
+    -H 'Content-Type: application/json' -d '{"reason":"e2e 内部接口验收收尾"}' >/dev/null
+  after_view=$(curl -s "$BASE/api/internal/players/ban-check/?player_id=$target_id&sign=$sign_id")
+  check "解封后 banned=false" "False" "$(jq_get "$after_view" "['data']['banned']")"
+fi
+
 echo
 echo "通过 $pass 项，失败 $fail 项"
 [ "$fail" -eq 0 ]
